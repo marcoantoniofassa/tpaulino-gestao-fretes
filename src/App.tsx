@@ -10,6 +10,7 @@ import { PagamentosPage } from '@/pages/PagamentosPage'
 import { MotoristasPage } from '@/pages/MotoristasPage'
 import { VeiculosPage } from '@/pages/VeiculosPage'
 import { Spinner } from '@/components/ui/Spinner'
+import { PushPrompt } from '@/components/layout/PushPrompt'
 
 export default function App() {
   const { isAuthenticated, userName, loading, login, logout } = useAuth()
@@ -29,6 +30,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50">
       <Header title="T Paulino" userName={userName} onLogout={logout} />
+      <PushPrompt />
       <Routes>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/fretes" element={<FretesPage />} />
