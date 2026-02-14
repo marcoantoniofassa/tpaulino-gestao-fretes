@@ -36,7 +36,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
       <div className="relative z-10">
         <div className="mb-8 text-center">
           <img
-            src="/logo.png"
+            src="/icon-512.png"
             alt="T Paulino"
             className="w-24 h-24 rounded-2xl mx-auto mb-4 shadow-2xl border border-white/10"
           />
