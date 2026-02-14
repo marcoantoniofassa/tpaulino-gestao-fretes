@@ -1,4 +1,4 @@
-import { LogOut, Truck } from 'lucide-react'
+import { LogOut } from 'lucide-react'
 
 interface HeaderProps {
   title: string
@@ -8,15 +8,26 @@ interface HeaderProps {
 
 export function Header({ title, userName, onLogout }: HeaderProps) {
   return (
-    <header className="sticky top-0 gradient-dark text-white z-40 shadow-lg">
-      <div className="flex items-center justify-between px-4 h-14">
+    <header className="sticky top-0 z-40 shadow-lg overflow-hidden">
+      {/* Background image with overlay */}
+      <div className="absolute inset-0">
+        <img
+          src="/header-bg.png"
+          alt=""
+          className="w-full h-full object-cover"
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-tp-dark/90 via-tp-dark/70 to-tp-blue/60" />
+      </div>
+      <div className="relative flex items-center justify-between px-4 h-14">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-tp-accent/20 rounded-lg flex items-center justify-center">
-            <Truck size={18} className="text-tp-accent" />
-          </div>
+          <img
+            src="/logo.png"
+            alt="T Paulino"
+            className="w-9 h-9 rounded-lg object-cover"
+          />
           <div>
-            <h1 className="text-lg font-bold leading-tight">{title}</h1>
-            <p className="text-[11px] text-slate-400 leading-tight">{userName}</p>
+            <h1 className="text-lg font-bold leading-tight text-white">{title}</h1>
+            <p className="text-[11px] text-blue-200/70 leading-tight">{userName}</p>
           </div>
         </div>
         <button
@@ -24,7 +35,7 @@ export function Header({ title, userName, onLogout }: HeaderProps) {
           className="p-2 rounded-lg hover:bg-white/10 transition-colors"
           aria-label="Sair"
         >
-          <LogOut size={20} className="text-slate-400" />
+          <LogOut size={20} className="text-blue-200/70" />
         </button>
       </div>
     </header>

@@ -5,7 +5,7 @@ import { RevenueTimeline, FretesByTerminal, FretesByDriver } from '@/components/
 import { FreteCard } from '@/components/fretes/FreteCard'
 import { Spinner } from '@/components/ui/Spinner'
 import { useDashboard } from '@/hooks/useDashboard'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react'
 
 export function DashboardPage() {
   const now = new Date()
@@ -31,17 +31,18 @@ export function DashboardPage() {
 
   return (
     <PageContainer>
-      {/* Date + Month selector */}
+      {/* Month selector */}
       <div className="mb-5">
-        <p className="text-sm text-slate-400">
+        <p className="text-sm text-slate-400 flex items-center gap-1.5">
+          <Calendar size={14} />
           {now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
         </p>
-        <div className="flex items-center justify-between mt-2">
-          <button onClick={prevMonth} className="p-2 rounded-lg hover:bg-slate-200 transition-colors">
+        <div className="flex items-center justify-between mt-2 bg-white rounded-xl px-2 py-1 shadow-sm border border-slate-100">
+          <button onClick={prevMonth} className="p-2 rounded-lg hover:bg-slate-100 transition-colors">
             <ChevronLeft size={20} className="text-slate-500" />
           </button>
-          <h2 className="text-lg font-bold text-slate-800 capitalize">{mesLabel}</h2>
-          <button onClick={nextMonth} className="p-2 rounded-lg hover:bg-slate-200 transition-colors">
+          <h2 className="text-base font-bold text-slate-800 capitalize">{mesLabel}</h2>
+          <button onClick={nextMonth} className="p-2 rounded-lg hover:bg-slate-100 transition-colors">
             <ChevronRight size={20} className="text-slate-500" />
           </button>
         </div>
