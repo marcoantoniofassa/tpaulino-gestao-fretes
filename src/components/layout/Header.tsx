@@ -1,4 +1,5 @@
 import { LogOut } from 'lucide-react'
+import { NotificationCenter } from './NotificationCenter'
 
 interface HeaderProps {
   title: string
@@ -30,13 +31,16 @@ export function Header({ title, userName, onLogout }: HeaderProps) {
             <p className="text-[11px] text-blue-200/70 leading-tight">{userName}</p>
           </div>
         </div>
-        <button
-          onClick={onLogout}
-          className="p-2 rounded-lg hover:bg-white/10 transition-colors"
-          aria-label="Sair"
-        >
-          <LogOut size={20} className="text-blue-200/70" />
-        </button>
+        <div className="flex items-center gap-1">
+          <NotificationCenter />
+          <button
+            onClick={onLogout}
+            className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+            aria-label="Sair"
+          >
+            <LogOut size={20} className="text-blue-200/70" />
+          </button>
+        </div>
       </div>
     </header>
   )
