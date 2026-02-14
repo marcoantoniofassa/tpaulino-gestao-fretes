@@ -31,6 +31,11 @@ export interface Database {
         Insert: Auth
         Update: Partial<Auth>
       }
+      tp_pagamentos: {
+        Row: Pagamento
+        Insert: Omit<Pagamento, 'id' | 'created_at'>
+        Update: Partial<Omit<Pagamento, 'id'>>
+      }
     }
     Functions: {
       tp_verify_pin: {
@@ -109,6 +114,19 @@ export interface Auth {
   id: string
   pin_hash: string
   nome: string
+}
+
+export interface Pagamento {
+  id: string
+  motorista_id: string
+  semana_inicio: string
+  semana_fim: string
+  total_fretes: number
+  valor_total: number
+  status: 'PENDENTE' | 'PAGO'
+  data_pagamento: string | null
+  observacao: string | null
+  created_at: string
 }
 
 export interface DashboardMonthly {

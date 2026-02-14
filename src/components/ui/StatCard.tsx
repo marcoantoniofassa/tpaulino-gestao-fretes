@@ -4,26 +4,28 @@ interface StatCardProps {
   label: string
   value: string | number
   icon?: ReactNode
-  color?: 'blue' | 'green' | 'amber' | 'red'
+  color?: 'blue' | 'green' | 'amber' | 'purple'
+  subtitle?: string
 }
 
-const colorMap = {
-  blue: 'bg-blue-50 text-blue-700',
-  green: 'bg-green-50 text-green-700',
-  amber: 'bg-amber-50 text-amber-700',
-  red: 'bg-red-50 text-red-700',
+const gradients = {
+  blue: 'gradient-blue',
+  green: 'gradient-green',
+  amber: 'gradient-amber',
+  purple: 'gradient-purple',
 }
 
-export function StatCard({ label, value, icon, color = 'blue' }: StatCardProps) {
+export function StatCard({ label, value, icon, color = 'blue', subtitle }: StatCardProps) {
   return (
-    <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
+    <div className={`${gradients[color]} rounded-2xl p-4 text-white shadow-lg`}>
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">{label}</span>
+        <span className="text-[11px] font-medium text-white/70 uppercase tracking-wide">{label}</span>
         {icon && (
-          <span className={`p-1.5 rounded-lg ${colorMap[color]}`}>{icon}</span>
+          <span className="p-1.5 rounded-lg bg-white/20">{icon}</span>
         )}
       </div>
-      <p className="text-2xl font-bold text-slate-800">{value}</p>
+      <p className="text-2xl font-bold">{value}</p>
+      {subtitle && <p className="text-[11px] text-white/60 mt-1">{subtitle}</p>}
     </div>
   )
 }

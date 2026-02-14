@@ -6,6 +6,7 @@ import { LoginPage } from '@/pages/LoginPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { FretesPage } from '@/pages/FretesPage'
 import { FreteDetailPage } from '@/pages/FreteDetailPage'
+import { PagamentosPage } from '@/pages/PagamentosPage'
 import { MotoristasPage } from '@/pages/MotoristasPage'
 import { VeiculosPage } from '@/pages/VeiculosPage'
 import { Spinner } from '@/components/ui/Spinner'
@@ -15,7 +16,7 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-tp-dark">
+      <div className="min-h-screen flex items-center justify-center gradient-dark">
         <Spinner />
       </div>
     )
@@ -32,6 +33,7 @@ export default function App() {
         <Route path="/" element={<DashboardPage />} />
         <Route path="/fretes" element={<FretesPage />} />
         <Route path="/fretes/:id" element={<FreteDetailPage />} />
+        <Route path="/pagamentos" element={<PagamentosPage />} />
         <Route path="/motoristas" element={<MotoristasPage />} />
         <Route path="/veiculos" element={<VeiculosPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

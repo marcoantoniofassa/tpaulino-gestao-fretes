@@ -22,7 +22,10 @@ export function useDashboard(mes?: string) {
       const now = new Date()
       const mesAtual = mes || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
       const inicioMes = `${mesAtual}-01`
-      const fimMes = `${mesAtual}-31`
+      // Calculate actual last day of month (handles Feb, 30-day months)
+      const [y, m] = mesAtual.split('-').map(Number)
+      const lastDay = new Date(y, m, 0).getDate()
+      const fimMes = `${mesAtual}-${String(lastDay).padStart(2, '0')}`
       const hoje = now.toISOString().split('T')[0]
 
       // Fetch fretes do mes

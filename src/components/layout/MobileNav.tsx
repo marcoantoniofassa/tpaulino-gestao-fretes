@@ -1,9 +1,10 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Truck, Users, CarFront } from 'lucide-react'
+import { LayoutDashboard, Truck, Users, CarFront, Wallet } from 'lucide-react'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/fretes', icon: Truck, label: 'Fretes' },
+  { to: '/pagamentos', icon: Wallet, label: 'Pagamentos' },
   { to: '/motoristas', icon: Users, label: 'Motoristas' },
   { to: '/veiculos', icon: CarFront, label: 'Veiculos' },
 ]
@@ -18,13 +19,20 @@ export function MobileNav() {
             to={to}
             end={to === '/'}
             className={({ isActive }) =>
-              `flex flex-col items-center gap-0.5 px-3 py-1 text-xs font-medium transition-colors ${
+              `flex flex-col items-center gap-0.5 px-2 py-1 text-[10px] font-medium transition-colors relative ${
                 isActive ? 'text-tp-blue' : 'text-slate-400'
               }`
             }
           >
-            <Icon size={22} />
-            <span>{label}</span>
+            {({ isActive }) => (
+              <>
+                {isActive && (
+                  <span className="absolute -top-1 w-6 h-0.5 bg-tp-blue rounded-full" />
+                )}
+                <Icon size={20} strokeWidth={isActive ? 2.5 : 1.5} />
+                <span>{label}</span>
+              </>
+            )}
           </NavLink>
         ))}
       </div>

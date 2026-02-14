@@ -34,7 +34,7 @@ export function KPIGrid({ totalFretes, receitaLiquida, mediaDiaria, fretesHoje }
         label="Fretes Hoje"
         value={fretesHoje}
         icon={<CalendarCheck size={16} />}
-        color="blue"
+        color="purple"
       />
     </div>
   )
