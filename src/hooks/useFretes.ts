@@ -25,6 +25,7 @@ export function useFretes(filters?: FretesFilter) {
       `)
       .order('data_frete', { ascending: false })
       .order('created_at', { ascending: false })
+      .limit(200)
 
     if (filters?.motorista_id) {
       query = query.eq('motorista_id', filters.motorista_id)
