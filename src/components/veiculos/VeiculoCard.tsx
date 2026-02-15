@@ -13,11 +13,13 @@ interface VeiculoCardProps {
 export function VeiculoCard({ veiculo, onUpdate }: VeiculoCardProps) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
+  const [feedback, setFeedback] = useState<'ok' | 'erro' | null>(null)
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     setUploading(true)
+    setFeedback(null)
     const url = await uploadPhoto(file, 'veiculos', veiculo.id)
     if (url) {
       await supabase
@@ -25,8 +27,12 @@ export function VeiculoCard({ veiculo, onUpdate }: VeiculoCardProps) {
         .update({ foto_url: url } as Record<string, unknown>)
         .eq('id', veiculo.id)
       onUpdate?.()
+      setFeedback('ok')
+    } else {
+      setFeedback('erro')
     }
     setUploading(false)
+    setTimeout(() => setFeedback(null), 3000)
   }
 
   return (
@@ -74,6 +80,12 @@ export function VeiculoCard({ veiculo, onUpdate }: VeiculoCardProps) {
           </div>
         </div>
       </div>
+      {feedback === 'ok' && (
+        <p className="mt-2 text-xs text-green-600 font-medium">Foto atualizada!</p>
+      )}
+      {feedback === 'erro' && (
+        <p className="mt-2 text-xs text-red-500 font-medium">Erro ao enviar foto. Tente novamente.</p>
+      )}
       {veiculo.reboque_placa && (
         <p className="mt-2 text-xs text-slate-400">Reboque: {veiculo.reboque_placa}</p>
       )}

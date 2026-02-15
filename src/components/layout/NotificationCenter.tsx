@@ -100,7 +100,7 @@ export function NotificationCenter() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-12 w-80 max-h-[70vh] bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden z-50 flex flex-col">
+        <div className="absolute right-0 top-12 w-80 max-w-[90vw] max-h-[70vh] bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden z-50 flex flex-col">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
             <h3 className="text-sm font-bold text-slate-700">Notificacoes</h3>

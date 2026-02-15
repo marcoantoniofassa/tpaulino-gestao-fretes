@@ -22,15 +22,23 @@ export function FreteDetail({ frete }: FreteDetailProps) {
   const [editing, setEditing] = useState(false)
   const [container, setContainer] = useState(frete.container || '')
   const [saving, setSaving] = useState(false)
+  const [saveMsg, setSaveMsg] = useState<string | null>(null)
 
   async function handleSave() {
     setSaving(true)
-    await supabase
+    setSaveMsg(null)
+    const { error } = await supabase
       .from('tp_fretes')
       .update({ container } as Record<string, unknown>)
       .eq('id', frete.id)
     setSaving(false)
-    setEditing(false)
+    if (error) {
+      setSaveMsg('Erro ao salvar')
+    } else {
+      setEditing(false)
+      setSaveMsg('Salvo!')
+      setTimeout(() => setSaveMsg(null), 2000)
+    }
   }
 
   return (
@@ -75,16 +83,19 @@ export function FreteDetail({ frete }: FreteDetailProps) {
                   className="px-2 py-1 border border-slate-200 rounded text-sm font-mono w-32"
                 />
                 <button onClick={handleSave} disabled={saving} className="text-tp-blue">
-                  <Save size={16} />
+                  {saving ? <div className="w-4 h-4 border-2 border-tp-blue border-t-transparent rounded-full animate-spin" /> : <Save size={16} />}
                 </button>
               </div>
             ) : (
               <button
-                onClick={() => setEditing(true)}
+                onClick={() => { setEditing(true); setSaveMsg(null) }}
                 className="text-sm font-mono text-slate-800 underline decoration-dashed"
               >
                 {frete.container || '-'}
               </button>
+            )}
+            {saveMsg && (
+              <span className={`ml-2 text-xs font-medium ${saveMsg === 'Salvo!' ? 'text-green-600' : 'text-red-500'}`}>{saveMsg}</span>
             )}
           </div>
 
@@ -103,7 +114,7 @@ export function FreteDetail({ frete }: FreteDetailProps) {
               <img
                 src={frete.foto_ticket_url}
                 alt="Ticket original"
-                className="w-full rounded-lg border border-slate-200"
+                className="w-full max-h-[50vh] object-contain rounded-lg border border-slate-200"
               />
             </div>
           )}
