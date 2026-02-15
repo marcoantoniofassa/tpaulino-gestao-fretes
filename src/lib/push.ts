@@ -67,6 +67,26 @@ export async function getCurrentSubscription(): Promise<PushSubscription | null>
   }
 }
 
+// Re-sync existing subscription to server on every app load
+// Fixes: server restart loses in-memory subscriptions
+export async function resyncSubscription(): Promise<void> {
+  try {
+    if (Notification.permission !== 'granted') return
+    const sub = await getCurrentSubscription()
+    if (!sub) return
+    await fetch('/api/push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        subscription: sub.toJSON(),
+        device_name: getDeviceName(),
+      }),
+    })
+  } catch {
+    // Silent fail — best effort
+  }
+}
+
 function getDeviceName(): string {
   const ua = navigator.userAgent
   if (/iPhone/.test(ua)) return 'iPhone'
