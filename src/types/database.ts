@@ -21,11 +21,6 @@ export interface Database {
         Insert: Omit<Frete, 'id' | 'created_at'>
         Update: Partial<Omit<Frete, 'id'>>
       }
-      tp_placa_aliases: {
-        Row: PlacaAlias
-        Insert: PlacaAlias
-        Update: Partial<PlacaAlias>
-      }
       tp_auth: {
         Row: Auth
         Insert: Auth
@@ -41,10 +36,6 @@ export interface Database {
       tp_verify_pin: {
         Args: { pin_input: string }
         Returns: { nome: string }[]
-      }
-      tp_dashboard_monthly: {
-        Args: { mes: string }
-        Returns: DashboardMonthly[]
       }
     }
   }
@@ -107,11 +98,6 @@ export interface FreteWithRelations extends Frete {
   tp_terminais: Pick<Terminal, 'id' | 'codigo' | 'nome'> | null
 }
 
-export interface PlacaAlias {
-  placa_ocr: string
-  veiculo_id: string
-}
-
 export interface Auth {
   id: string
   pin_hash: string
@@ -129,11 +115,4 @@ export interface Pagamento {
   data_pagamento: string | null
   observacao: string | null
   created_at: string
-}
-
-export interface DashboardMonthly {
-  total_fretes: number
-  receita_liquida: number
-  media_diaria: number
-  fretes_hoje: number
 }

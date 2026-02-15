@@ -232,15 +232,14 @@ begin
   select id into christian_id from tp_motoristas where nome_normalizado = 'CHRISTIAN';
   select id into valter_id from tp_motoristas where nome_normalizado = 'VALTER';
 
-  insert into tp_veiculos (id, placa, placa_normalizada, motorista_fixo_id) values
-    (gen_random_uuid(), 'FJR7B87', 'FJR7B87', alessandro_id),
-    (gen_random_uuid(), 'ECS0E09', 'ECS0E09', ronaldo_id),
-    (gen_random_uuid(), 'FEI3D86', 'FEI3D86', christian_id),
-    (gen_random_uuid(), 'GFR6A86', 'GFR6A86', valter_id),
-    (gen_random_uuid(), 'DVS8J28', 'DVS8J28', null)
-  returning id into v_fjr; -- just to have a reference
+  insert into tp_veiculos (placa, placa_normalizada, motorista_fixo_id) values
+    ('FJR7B87', 'FJR7B87', alessandro_id),
+    ('ECS0E09', 'ECS0E09', ronaldo_id),
+    ('FEI3D86', 'FEI3D86', christian_id),
+    ('GFR6A86', 'GFR6A86', valter_id),
+    ('DVS8J28', 'DVS8J28', null);
 
-  -- Placa aliases (erros OCR conhecidos)
+  -- Buscar IDs gerados para aliases
   select id into v_fjr from tp_veiculos where placa = 'FJR7B87';
   select id into v_ecs from tp_veiculos where placa = 'ECS0E09';
   select id into v_fei from tp_veiculos where placa = 'FEI3D86';
