@@ -9,9 +9,9 @@ interface HeaderProps {
 
 export function Header({ title, userName, onLogout }: HeaderProps) {
   return (
-    <header className="sticky top-0 z-40 shadow-lg overflow-hidden">
+    <header className="sticky top-0 z-40 shadow-lg">
       {/* Background image with overlay */}
-      <div className="absolute inset-0">
+      <div className="absolute inset-0 overflow-hidden">
         <img
           src="/header-bg.png"
           alt=""
