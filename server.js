@@ -14,7 +14,7 @@ const PUSH_API_KEY = process.env.PUSH_API_KEY || 'tp-push-2026'
 
 // Supabase config (for persisting push subscriptions)
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://dfuajmyhpfgxgonsejsc.supabase.co'
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY || ''
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || ''
 
 webpush.setVapidDetails('mailto:marcoantonio@contele.com.br', VAPID_PUBLIC, VAPID_PRIVATE)
 
