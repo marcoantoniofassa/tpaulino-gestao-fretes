@@ -1,3 +1,23 @@
+/** Returns YYYY-MM-DD in local timezone (avoids UTC shift near midnight) */
+export function localDateStr(date: Date = new Date()): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+/** Formats ISO timestamp to "14/02/2026 15:30" in local timezone */
+export function formatDateTime(isoStr: string): string {
+  const d = new Date(isoStr)
+  return d.toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 export function formatCurrency(value: number): string {
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',
@@ -37,8 +57,8 @@ export function getWeekRange(date: Date): { inicio: string; fim: string } {
   const wednesday = new Date(thursday)
   wednesday.setDate(thursday.getDate() + 6)
   return {
-    inicio: thursday.toISOString().split('T')[0],
-    fim: wednesday.toISOString().split('T')[0],
+    inicio: localDateStr(thursday),
+    fim: localDateStr(wednesday),
   }
 }
 

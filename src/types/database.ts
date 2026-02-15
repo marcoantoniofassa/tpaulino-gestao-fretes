@@ -66,6 +66,7 @@ export interface Veiculo {
   placa_normalizada: string
   reboque_placa: string | null
   motorista_fixo_id: string | null
+  foto_url: string | null
   status: 'ativo' | 'inativo'
   created_at: string
 }
@@ -94,6 +95,7 @@ export interface Frete {
   valor_liquido: number
   ocr_raw: Record<string, unknown> | null
   ai_corrections: Record<string, unknown> | null
+  foto_ticket_url: string | null
   status: string
   n8n_execution_id: string | null
   created_at: string

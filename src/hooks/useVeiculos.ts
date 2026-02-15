@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { Veiculo, Motorista } from '@/types/database'
 
@@ -10,22 +10,21 @@ export function useVeiculos() {
   const [veiculos, setVeiculos] = useState<VeiculoWithMotorista[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    async function fetch() {
-      const { data, error } = await supabase
-        .from('tp_veiculos')
-        .select('*, tp_motoristas(id, nome)')
-        .order('placa')
+  const refetch = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('tp_veiculos')
+      .select('*, tp_motoristas(id, nome)')
+      .order('placa')
 
-      if (error) {
-        console.error('Error fetching veiculos:', error)
-      } else {
-        setVeiculos(data as VeiculoWithMotorista[])
-      }
-      setLoading(false)
+    if (error) {
+      console.error('Error fetching veiculos:', error)
+    } else {
+      setVeiculos(data as VeiculoWithMotorista[])
     }
-    fetch()
+    setLoading(false)
   }, [])
 
-  return { veiculos, loading }
+  useEffect(() => { refetch() }, [refetch])
+
+  return { veiculos, loading, refetch }
 }

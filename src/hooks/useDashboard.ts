@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import { localDateStr } from '@/lib/utils'
 import type { FreteWithRelations } from '@/types/database'
 
 interface DashboardData {
@@ -26,7 +27,7 @@ export function useDashboard(mes?: string) {
       const [y, m] = mesAtual.split('-').map(Number)
       const lastDay = new Date(y, m, 0).getDate()
       const fimMes = `${mesAtual}-${String(lastDay).padStart(2, '0')}`
-      const hoje = now.toISOString().split('T')[0]
+      const hoje = localDateStr(now)
 
       // Fetch fretes do mes
       const { data: fretes } = await supabase

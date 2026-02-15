@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { ArrowLeft, Save } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Badge } from '@/components/ui/Badge'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, formatDateTime } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import type { FreteWithRelations } from '@/types/database'
 
@@ -58,6 +58,7 @@ export function FreteDetail({ frete }: FreteDetailProps) {
         {/* Fields */}
         <div className="p-4 space-y-3">
           <Row label="Data" value={formatDate(frete.data_frete)} />
+          <Row label="Registrado em" value={formatDateTime(frete.created_at)} subtle />
           <Row label="Terminal" value={frete.tp_terminais?.nome || 'N/A'} />
           <Row label="Placa" value={frete.tp_veiculos?.placa || 'N/A'} />
           <Row label="Sequencia" value={frete.sequencia?.toString() || '-'} />
@@ -95,6 +96,18 @@ export function FreteDetail({ frete }: FreteDetailProps) {
             <Row label="Valor Liquido" value={formatCurrency(frete.valor_liquido)} bold />
           </div>
 
+          {/* Foto do ticket */}
+          {frete.foto_ticket_url && (
+            <div className="pt-2 border-t border-slate-100 mt-4">
+              <h4 className="text-sm font-semibold text-slate-700 mb-2">Foto do Ticket</h4>
+              <img
+                src={frete.foto_ticket_url}
+                alt="Ticket original"
+                className="w-full rounded-lg border border-slate-200"
+              />
+            </div>
+          )}
+
           {/* OCR Raw */}
           {frete.ocr_raw && (
             <div className="pt-2 border-t border-slate-100 mt-4">
@@ -120,11 +133,11 @@ export function FreteDetail({ frete }: FreteDetailProps) {
   )
 }
 
-function Row({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
+function Row({ label, value, bold, subtle }: { label: string; value: string; bold?: boolean; subtle?: boolean }) {
   return (
     <div className="flex items-center justify-between py-2 border-b border-slate-100">
-      <span className="text-sm text-slate-500">{label}</span>
-      <span className={`text-sm ${bold ? 'font-bold text-slate-800' : 'text-slate-700'}`}>{value}</span>
+      <span className={`text-sm ${subtle ? 'text-slate-400 text-xs' : 'text-slate-500'}`}>{label}</span>
+      <span className={`text-sm ${bold ? 'font-bold text-slate-800' : subtle ? 'text-slate-400 text-xs' : 'text-slate-700'}`}>{value}</span>
     </div>
   )
 }
