@@ -14,6 +14,7 @@ export function useVeiculos() {
     const { data, error } = await supabase
       .from('tp_veiculos')
       .select('*, tp_motoristas(id, nome)')
+      .eq('status', 'ativo')
       .order('placa')
 
     if (error) {
