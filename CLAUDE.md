@@ -40,25 +40,26 @@ OCR via Gemini no N8N le fotos de tickets enviados por WhatsApp, grava no Supaba
 │   │   ├── supabase.ts     # Supabase client
 │   │   ├── auth.ts         # PIN verify via RPC
 │   │   ├── push.ts         # Push subscription helpers
+│   │   ├── storage.ts      # Upload fotos (Supabase Storage)
 │   │   ├── constants.ts
-│   │   └── utils.ts
+│   │   └── utils.ts        # formatDate, formatTime, formatCurrency, getWeekRange
 │   ├── hooks/
 │   │   ├── useAuth.ts
-│   │   ├── useFretes.ts       # Realtime + filtros
-│   │   ├── useDashboard.ts    # KPIs mensais
-│   │   ├── usePagamentos.ts   # Pagamentos semanais
+│   │   ├── useFretes.ts       # Realtime (INSERT + UPDATE)
+│   │   ├── useDashboard.ts    # Realtime (INSERT + UPDATE + DELETE)
+│   │   ├── usePagamentos.ts   # Pagamentos semanais (Supabase + localStorage fallback)
 │   │   ├── useMotoristas.ts
 │   │   ├── useVeiculos.ts
-│   │   └── useNotificacoes.ts # Realtime notifications
+│   │   └── useNotificacoes.ts # Realtime (INSERT + UPDATE)
 │   ├── components/
 │   │   ├── layout/
 │   │   │   ├── Header.tsx           # Header c/ imagem de fundo
-│   │   │   ├── MobileNav.tsx        # Bottom tabs
+│   │   │   ├── MobileNav.tsx        # Bottom tabs (iOS safe area)
 │   │   │   ├── NotificationCenter.tsx  # Sininho + painel dropdown
 │   │   │   ├── PushPrompt.tsx       # Banner "ativar push" pos-login
 │   │   │   └── PageContainer.tsx
-│   │   ├── ui/          # Card, Badge, Button, PinInput, etc
-│   │   ├── fretes/       # FreteCard, FreteList, FreteFilters
+│   │   ├── ui/          # Card, Badge, Button, PinInput, Spinner, etc
+│   │   ├── fretes/       # FreteCard (data + hora), FreteList, FreteFilters, FreteDetail
 │   │   ├── dashboard/    # KPIGrid, Charts
 │   │   ├── motoristas/
 │   │   └── veiculos/
@@ -73,28 +74,46 @@ OCR via Gemini no N8N le fotos de tickets enviados por WhatsApp, grava no Supaba
 │   └── types/
 │       └── database.ts
 └── supabase/
-    └── migrations/
+    └── migrations/        # Schema SQL (referencia)
 ```
 
 ## Tabelas Supabase (prefixo `tp_`)
 
 | Tabela | Descricao |
 |--------|-----------|
-| `tp_fretes` | Fretes (data, container, motorista, veiculo, terminal, valores, OCR raw) |
-| `tp_motoristas` | 4 motoristas ativos |
-| `tp_veiculos` | 6 veiculos |
+| `tp_fretes` | Fretes (data, container, motorista, veiculo, terminal, valores, OCR raw, foto_ticket_url) |
+| `tp_motoristas` | 4 motoristas ativos (whatsapp_group_jid) |
+| `tp_veiculos` | 6 veiculos (foto_url) |
 | `tp_terminais` | BTP, ECOPORTO, DPW, SANTOS_BRASIL |
+| `tp_pagamentos` | Status pagamento semanal por motorista (PAGO/PENDENTE) |
+| `tp_push_subscriptions` | Push subscriptions persistidas |
 | `tp_placa_aliases` | Correcoes OCR de placa |
 | `tp_auth` | PIN hash |
 | `tp_abastecimentos` | Stub fase 2 |
 | `tp_manutencoes` | Stub fase 2 |
 
+### Storage
+- Bucket `fotos` (publico) — fotos de veiculos e tickets
+
+## Realtime
+
+| Hook | INSERT | UPDATE | DELETE |
+|------|--------|--------|--------|
+| useFretes | Refetch | Refetch | - |
+| useDashboard | Refetch | Refetch | Refetch |
+| useNotificacoes | Refetch | Refetch | - |
+
+Dashboard, fretes e notificacoes atualizam ao vivo sem reload.
+
 ## Push Notifications
 
 **Arquitetura**:
-- `server.js` armazena subscriptions in-memory (reseta no redeploy)
+- `server.js` armazena subscriptions **persistidas no Supabase** (tabela `tp_push_subscriptions`)
+- Fallback in-memory se tabela nao existir
 - Service Worker (`sw.js`) recebe push e mostra notificacao nativa
 - N8N dispara push apos inserir frete no Supabase
+- **Titulo push**: `MOTORISTA — TERMINAL` (ex: "VALTER — DPW")
+- **Body push**: `CONTAINER — R$ VALOR` (ex: "MSCU526304E — R$ 455,10")
 - Notification center in-app usa Supabase Realtime (sem tabela extra)
 - Estado lido/nao-lido em localStorage
 
@@ -117,11 +136,20 @@ Webhook (Evolution) → Grupos → Filter → Convert → Gemini OCR → Busines
 
 16 nodes | FK resolution hardcoded | Google Sheets como backup
 
+### Resolver FKs — Features
+- Reverse lookup: `motorista_nome` e `terminal_nome` (nomes canonicos, sem erros OCR)
+- **Fallback de precos**: se OCR nao extrair valores (valor_bruto=0), aplica pricing padrao pelo terminal:
+  - BTP/ECOPORTO: R$ 580 bruto, R$ 145 comissao, R$ 435 liquido
+  - DPW/SANTOS BRASIL: R$ 680 bruto, R$ 54,90 pedagio, R$ 170 comissao, R$ 455,10 liquido
+- GROUP_MOTORISTA: grupo WhatsApp define motorista fixo (nao OCR)
+
 ## Env Vars (Railway)
 
 | Var | Descricao |
 |-----|-----------|
 | `PORT` | Injetado pelo Railway |
+| `TZ` | `America/Sao_Paulo` |
+| `SUPABASE_ANON_KEY` | Para server.js (push persistence) |
 | `VAPID_PUBLIC_KEY` | Chave publica push (tem default no codigo) |
 | `VAPID_PRIVATE_KEY` | Chave privada push (tem default no codigo) |
 | `PUSH_API_KEY` | API key pro /api/push/send (default: `tp-push-2026`) |
@@ -139,9 +167,10 @@ Webhook (Evolution) → Grupos → Filter → Convert → Gemini OCR → Busines
 - CSS: Tailwind utilities + gradients customizados em `index.css`
 - Cores: `tp-blue` (#1e40af), `tp-dark` (#0f172a), `tp-accent` (#f59e0b)
 - Mobile-first: bottom nav, cards touch-friendly
-- Realtime: Supabase channels para fretes e notificacoes
+- Realtime: Supabase channels para fretes, dashboard e notificacoes
 - Build: `npm run build` (tsc + vite)
 - Start: `node server.js` (Express, NAO serve)
+- Timezone: `localDateStr()` evita bug UTC near midnight
 
 ## URLs
 
