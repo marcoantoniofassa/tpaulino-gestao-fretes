@@ -90,6 +90,9 @@ export function useNotificacoes() {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'tp_fretes' }, () => {
         fetchRecentes()
       })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tp_fretes' }, () => {
+        fetchRecentes()
+      })
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
