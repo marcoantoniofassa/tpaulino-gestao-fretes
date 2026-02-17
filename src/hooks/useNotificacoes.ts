@@ -40,8 +40,8 @@ function freteToNotificacao(frete: FreteWithRelations): Notificacao {
   return {
     id: frete.id,
     tipo: 'novo_frete',
-    titulo: `Novo frete ${terminal}`,
-    mensagem: `${motorista} — ${frete.container || 'S/N'} — ${valor}`,
+    titulo: `${motorista} — ${terminal}`,
+    mensagem: `${frete.container || 'S/N'} — ${valor}`,
     url: `/fretes/${frete.id}`,
     lida: false,
     created_at: frete.created_at,

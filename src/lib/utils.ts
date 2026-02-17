@@ -18,6 +18,12 @@ export function formatDateTime(isoStr: string): string {
   })
 }
 
+/** Formats ISO timestamp to "15:30" in local timezone */
+export function formatTime(isoStr: string): string {
+  const d = new Date(isoStr)
+  return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
 export function formatCurrency(value: number): string {
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',
