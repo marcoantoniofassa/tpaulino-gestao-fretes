@@ -54,7 +54,7 @@ export function GastosPage() {
       <div className="grid grid-cols-2 gap-3 mb-4">
         <div className="gradient-red rounded-2xl p-4 text-white shadow-lg">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-medium text-white/70 uppercase tracking-wide">Total Gastos</span>
+            <span className="text-[11px] font-medium text-white/70 uppercase tracking-wide">Total Despesas</span>
             <span className="p-1.5 rounded-lg bg-white/20"><Receipt size={16} /></span>
           </div>
           <p className="text-2xl font-bold">{formatCurrency(resumo.total)}</p>
@@ -79,7 +79,7 @@ export function GastosPage() {
       ) : gastos.length === 0 ? (
         <div className="text-center py-12 text-slate-400">
           <Receipt size={32} className="mx-auto mb-2 opacity-40" />
-          <p className="text-sm">Nenhum gasto neste mes</p>
+          <p className="text-sm">Nenhuma despesa neste mes</p>
         </div>
       ) : (
         <div className="flex flex-col gap-3">

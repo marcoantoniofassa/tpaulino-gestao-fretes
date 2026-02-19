@@ -1,4 +1,4 @@
-import { Trash2, Image } from 'lucide-react'
+import { Trash2, Image, Fuel } from 'lucide-react'
 import { Badge } from '@/components/ui/Badge'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { toggleGastoStatus, deleteGasto } from '@/hooks/useGastos'
@@ -9,6 +9,7 @@ interface GastoCardProps {
 }
 
 const tipoBadgeColor: Record<string, string> = {
+  ABASTECIMENTO: 'bg-green-100 text-green-700',
   BORRACHARIA: 'bg-amber-100 text-amber-700',
   MANUTENCAO: 'bg-blue-100 text-blue-700',
   PNEU: 'bg-slate-100 text-slate-700',
@@ -27,10 +28,12 @@ export function GastoCard({ gasto }: GastoCardProps) {
 
   async function handleDelete(e: React.MouseEvent) {
     e.stopPropagation()
-    if (confirm('Excluir este gasto?')) {
+    if (confirm('Excluir esta despesa?')) {
       await deleteGasto(gasto.id)
     }
   }
+
+  const isAbastecimento = gasto.tipo === 'ABASTECIMENTO'
 
   return (
     <button
@@ -53,6 +56,14 @@ export function GastoCard({ gasto }: GastoCardProps) {
             <span className="text-slate-300">|</span>
             <span>{gasto.forma_pagamento}</span>
           </div>
+          {isAbastecimento && (gasto.litros || gasto.km_odometro) && (
+            <div className="flex items-center gap-2 text-xs text-green-600 mb-1">
+              <Fuel size={12} />
+              {gasto.litros && <span>{gasto.litros}L</span>}
+              {gasto.preco_litro && <span>R${gasto.preco_litro}/L</span>}
+              {gasto.km_odometro && <span>{gasto.km_odometro.toLocaleString('pt-BR')} km</span>}
+            </div>
+          )}
           {gasto.descricao && (
             <p className="text-xs text-slate-400 truncate">{gasto.descricao}</p>
           )}

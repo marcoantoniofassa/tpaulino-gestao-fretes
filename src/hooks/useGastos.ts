@@ -77,6 +77,9 @@ export async function createGasto(
     vencimento?: string | null
     forma_pagamento: string
     dados_pagamento?: string | null
+    litros?: number | null
+    preco_litro?: number | null
+    km_odometro?: number | null
   },
   foto?: File | null
 ): Promise<{ id: string } | null> {
@@ -91,6 +94,9 @@ export async function createGasto(
       vencimento: gasto.vencimento || null,
       forma_pagamento: gasto.forma_pagamento,
       dados_pagamento: gasto.dados_pagamento || null,
+      litros: gasto.litros ?? null,
+      preco_litro: gasto.preco_litro ?? null,
+      km_odometro: gasto.km_odometro ?? null,
     })
     .select('id')
     .single()

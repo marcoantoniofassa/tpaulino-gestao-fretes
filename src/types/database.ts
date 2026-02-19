@@ -40,7 +40,7 @@ export interface Database {
     Functions: {
       tp_verify_pin: {
         Args: { pin_input: string }
-        Returns: { nome: string }[]
+        Returns: { nome: string; role: string }[]
       }
     }
   }
@@ -107,6 +107,7 @@ export interface Auth {
   id: string
   pin_hash: string
   nome: string
+  role: 'admin' | 'supervisor'
 }
 
 export interface Pagamento {
@@ -134,6 +135,9 @@ export interface Gasto {
   dados_pagamento: string | null
   foto_url: string | null
   status: 'PENDENTE' | 'PAGO'
+  litros: number | null
+  preco_litro: number | null
+  km_odometro: number | null
   created_at: string
 }
 

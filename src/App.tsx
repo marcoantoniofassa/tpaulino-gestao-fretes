@@ -14,7 +14,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { PushPrompt } from '@/components/layout/PushPrompt'
 
 export default function App() {
-  const { isAuthenticated, userName, loading, login, logout } = useAuth()
+  const { isAuthenticated, userName, role, loading, login, logout } = useAuth()
 
   if (loading) {
     return (
@@ -28,21 +28,32 @@ export default function App() {
     return <LoginPage onLogin={login} />
   }
 
+  const isSupervisor = role === 'supervisor'
+
   return (
     <div className="min-h-screen bg-slate-50">
       <Header title="T Paulino" userName={userName} onLogout={logout} />
       <PushPrompt />
       <Routes>
-        <Route path="/" element={<DashboardPage />} />
-        <Route path="/fretes" element={<FretesPage />} />
-        <Route path="/fretes/:id" element={<FreteDetailPage />} />
-        <Route path="/pagamentos" element={<PagamentosPage />} />
-        <Route path="/gastos" element={<GastosPage />} />
-        <Route path="/motoristas" element={<MotoristasPage />} />
-        <Route path="/veiculos" element={<VeiculosPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        {isSupervisor ? (
+          <>
+            <Route path="/gastos" element={<GastosPage />} />
+            <Route path="*" element={<Navigate to="/gastos" replace />} />
+          </>
+        ) : (
+          <>
+            <Route path="/" element={<DashboardPage />} />
+            <Route path="/fretes" element={<FretesPage />} />
+            <Route path="/fretes/:id" element={<FreteDetailPage />} />
+            <Route path="/pagamentos" element={<PagamentosPage />} />
+            <Route path="/gastos" element={<GastosPage />} />
+            <Route path="/motoristas" element={<MotoristasPage />} />
+            <Route path="/veiculos" element={<VeiculosPage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </>
+        )}
       </Routes>
-      <MobileNav />
+      <MobileNav role={role} />
     </div>
   )
 }

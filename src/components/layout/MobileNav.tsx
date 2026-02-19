@@ -1,16 +1,25 @@
 import { NavLink } from 'react-router-dom'
 import { LayoutDashboard, Truck, Users, CarFront, Wallet, Receipt } from 'lucide-react'
+import type { UserRole } from '@/lib/auth'
 
-const navItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/fretes', icon: Truck, label: 'Fretes' },
-  { to: '/pagamentos', icon: Wallet, label: 'Pagam.' },
-  { to: '/gastos', icon: Receipt, label: 'Gastos' },
-  { to: '/motoristas', icon: Users, label: 'Motoristas' },
-  { to: '/veiculos', icon: CarFront, label: 'Veiculos' },
+const allNavItems = [
+  { to: '/', icon: LayoutDashboard, label: 'Dashboard', adminOnly: true },
+  { to: '/fretes', icon: Truck, label: 'Fretes', adminOnly: true },
+  { to: '/pagamentos', icon: Wallet, label: 'Pagam.', adminOnly: true },
+  { to: '/gastos', icon: Receipt, label: 'Despesas', adminOnly: false },
+  { to: '/motoristas', icon: Users, label: 'Motoristas', adminOnly: true },
+  { to: '/veiculos', icon: CarFront, label: 'Veiculos', adminOnly: true },
 ]
 
-export function MobileNav() {
+interface MobileNavProps {
+  role: UserRole
+}
+
+export function MobileNav({ role }: MobileNavProps) {
+  const navItems = role === 'supervisor'
+    ? allNavItems.filter(item => !item.adminOnly)
+    : allNavItems
+
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-50 pb-[env(safe-area-inset-bottom)]">
       <div className="flex justify-around items-center h-16">
