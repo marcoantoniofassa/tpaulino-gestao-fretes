@@ -13,7 +13,7 @@ OCR via Gemini no N8N le fotos de tickets enviados por WhatsApp, grava no Supaba
 | Charts | Recharts |
 | Database | Supabase (`dfuajmyhpfgxgonsejsc`) |
 | Server | Express 5 (serve SPA + Push API) |
-| Auth | PIN 4 digitos (sem Supabase Auth) |
+| Auth | PIN 4 digitos + role (admin/supervisor) |
 | Push | Web Push API + VAPID + Service Worker |
 | OCR | N8N + Gemini 2.5 Flash Vision |
 | Deploy | Railway auto-deploy via git push |
@@ -38,7 +38,7 @@ OCR via Gemini no N8N le fotos de tickets enviados por WhatsApp, grava no Supaba
 │   ├── index.css           # Tailwind + custom utilities
 │   ├── lib/
 │   │   ├── supabase.ts     # Supabase client
-│   │   ├── auth.ts         # PIN verify via RPC
+│   │   ├── auth.ts         # PIN verify via RPC + role (admin/supervisor)
 │   │   ├── push.ts         # Push subscription helpers
 │   │   ├── storage.ts      # Upload fotos (Supabase Storage)
 │   │   ├── constants.ts
@@ -55,14 +55,14 @@ OCR via Gemini no N8N le fotos de tickets enviados por WhatsApp, grava no Supaba
 │   ├── components/
 │   │   ├── layout/
 │   │   │   ├── Header.tsx           # Header c/ imagem de fundo
-│   │   │   ├── MobileNav.tsx        # Bottom tabs (iOS safe area)
+│   │   │   ├── MobileNav.tsx        # Bottom tabs (iOS safe area) — role-filtered
 │   │   │   ├── NotificationCenter.tsx  # Sininho + painel dropdown
 │   │   │   ├── PushPrompt.tsx       # Banner "ativar push" pos-login
 │   │   │   └── PageContainer.tsx
 │   │   ├── ui/          # Card, Badge, Button, PinInput, Spinner, etc
 │   │   ├── fretes/       # FreteCard (data + hora), FreteList, FreteFilters, FreteDetail
-│   │   ├── gastos/       # GastoCard, GastoForm (form colapsavel inline)
-│   │   ├── dashboard/    # KPIGrid (6 cards: fretes, receita, media, hoje, gastos, lucro), Charts
+│   │   ├── gastos/       # GastoCard, GastoForm (abastecimento: litros, R$/L, km)
+│   │   ├── dashboard/    # KPIGrid (6 cards dinamicos mes/semana), Charts (RevenueTimeline, FretesByDriver)
 │   │   ├── motoristas/
 │   │   └── veiculos/
 │   ├── pages/
@@ -89,10 +89,10 @@ OCR via Gemini no N8N le fotos de tickets enviados por WhatsApp, grava no Supaba
 | `tp_veiculos` | 6 veiculos (foto_url) |
 | `tp_terminais` | BTP, ECOPORTO, DPW, SANTOS_BRASIL |
 | `tp_pagamentos` | Status pagamento semanal por motorista (PAGO/PENDENTE) |
-| `tp_gastos` | Gastos operacionais (tipo, valor, veiculo, vencimento, forma_pagamento, foto) |
+| `tp_gastos` | Despesas operacionais (tipo, valor, veiculo, forma_pagamento, foto, litros, preco_litro, km_odometro) |
 | `tp_push_subscriptions` | Push subscriptions persistidas |
 | `tp_placa_aliases` | Correcoes OCR de placa |
-| `tp_auth` | PIN hash |
+| `tp_auth` | PIN hash + role (admin/supervisor) |
 | `tp_abastecimentos` | Stub fase 2 (coberto por tp_gastos) |
 | `tp_manutencoes` | Stub fase 2 (coberto por tp_gastos) |
 
@@ -176,8 +176,10 @@ Webhook (Evolution) → Grupos → Filter → Convert → Gemini OCR → Busines
 - Build: `npm run build` (tsc + vite)
 - Start: `node server.js` (Express, NAO serve)
 - Timezone: `localDateStr()` evita bug UTC near midnight
-- Ciclo pagamento semanal: quarta a terça (getWeekRange em utils.ts)
-- Dashboard KPIs: 6 cards (fretes, receita liquida, media diaria, fretes hoje, gastos mes, lucro)
+- Ciclo semanal: quarta a terça (getWeekRange em utils.ts) — usado em Fretes, Pagamentos e Dashboard
+- Dashboard: toggle Mes/Semana, KPIs dinamicos (Fretes/Despesas Mes ou Semana)
+- Roles: admin (acesso total), supervisor (so Despesas) — role vem da RPC tp_verify_pin
+- Despesas: tipo ABASTECIMENTO tem campos litros, preco_litro, km_odometro com auto-calculo
 
 ## URLs
 
