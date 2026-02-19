@@ -1,4 +1,4 @@
-import { Truck, DollarSign, TrendingUp, CalendarCheck } from 'lucide-react'
+import { Truck, DollarSign, TrendingUp, CalendarCheck, Receipt, CircleDollarSign } from 'lucide-react'
 import { StatCard } from '@/components/ui/StatCard'
 import { formatCurrency } from '@/lib/utils'
 
@@ -7,9 +7,11 @@ interface KPIGridProps {
   receitaLiquida: number
   mediaDiaria: number
   fretesHoje: number
+  totalGastos: number
+  lucro: number
 }
 
-export function KPIGrid({ totalFretes, receitaLiquida, mediaDiaria, fretesHoje }: KPIGridProps) {
+export function KPIGrid({ totalFretes, receitaLiquida, mediaDiaria, fretesHoje, totalGastos, lucro }: KPIGridProps) {
   return (
     <div className="grid grid-cols-2 gap-3">
       <StatCard
@@ -35,6 +37,18 @@ export function KPIGrid({ totalFretes, receitaLiquida, mediaDiaria, fretesHoje }
         value={fretesHoje}
         icon={<CalendarCheck size={16} />}
         color="purple"
+      />
+      <StatCard
+        label="Gastos Mes"
+        value={formatCurrency(totalGastos)}
+        icon={<Receipt size={16} />}
+        color="red"
+      />
+      <StatCard
+        label="Lucro"
+        value={formatCurrency(lucro)}
+        icon={<CircleDollarSign size={16} />}
+        color="green"
       />
     </div>
   )

@@ -57,6 +57,8 @@ export function DashboardPage() {
             receitaLiquida={data.receitaLiquida}
             mediaDiaria={data.mediaDiaria}
             fretesHoje={data.fretesHoje}
+            totalGastos={data.totalGastos}
+            lucro={data.lucro}
           />
 
           <div className="mt-5 space-y-4">

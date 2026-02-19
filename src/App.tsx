@@ -9,6 +9,7 @@ import { FreteDetailPage } from '@/pages/FreteDetailPage'
 import { PagamentosPage } from '@/pages/PagamentosPage'
 import { MotoristasPage } from '@/pages/MotoristasPage'
 import { VeiculosPage } from '@/pages/VeiculosPage'
+import { GastosPage } from '@/pages/GastosPage'
 import { Spinner } from '@/components/ui/Spinner'
 import { PushPrompt } from '@/components/layout/PushPrompt'
 
@@ -36,6 +37,7 @@ export default function App() {
         <Route path="/fretes" element={<FretesPage />} />
         <Route path="/fretes/:id" element={<FreteDetailPage />} />
         <Route path="/pagamentos" element={<PagamentosPage />} />
+        <Route path="/gastos" element={<GastosPage />} />
         <Route path="/motoristas" element={<MotoristasPage />} />
         <Route path="/veiculos" element={<VeiculosPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

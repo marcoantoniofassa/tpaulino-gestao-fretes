@@ -50,21 +50,20 @@ export function cn(...classes: (string | false | null | undefined)[]): string {
   return classes.filter(Boolean).join(' ')
 }
 
-// Week helpers - semana fecha na quarta (quinta a quarta)
+// Week helpers - semana fecha na terça (quarta a terça)
 export function getWeekRange(date: Date): { inicio: string; fim: string } {
   const d = new Date(date)
-  const day = d.getDay() // 0=Sun, 1=Mon, ..., 4=Thu, ..., 6=Sat
-  // Find Thursday (start of payment week)
-  // If today is Thu(4), Fri(5), Sat(6), Sun(0), Mon(1), Tue(2), Wed(3)
-  // diffToThursday: 4→0, 5→-1, 6→-2, 0→-3, 1→-4, 2→-5, 3→-6
-  const diffToThursday = day >= 4 ? 4 - day : 4 - day - 7
-  const thursday = new Date(d)
-  thursday.setDate(d.getDate() + diffToThursday)
-  const wednesday = new Date(thursday)
-  wednesday.setDate(thursday.getDate() + 6)
+  const day = d.getDay() // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+  // Find Wednesday (start of payment week)
+  // Wed(3)→0, Thu(4)→-1, Fri(5)→-2, Sat(6)→-3, Sun(0)→-4, Mon(1)→-5, Tue(2)→-6
+  const diffToWednesday = day >= 3 ? 3 - day : 3 - day - 7
+  const wednesday = new Date(d)
+  wednesday.setDate(d.getDate() + diffToWednesday)
+  const tuesday = new Date(wednesday)
+  tuesday.setDate(wednesday.getDate() + 6)
   return {
-    inicio: localDateStr(thursday),
-    fim: localDateStr(wednesday),
+    inicio: localDateStr(wednesday),
+    fim: localDateStr(tuesday),
   }
 }
 

@@ -4,7 +4,7 @@ interface StatCardProps {
   label: string
   value: string | number
   icon?: ReactNode
-  color?: 'blue' | 'green' | 'amber' | 'purple'
+  color?: 'blue' | 'green' | 'amber' | 'purple' | 'red'
   subtitle?: string
 }
 
@@ -13,6 +13,7 @@ const gradients = {
   green: 'gradient-green',
   amber: 'gradient-amber',
   purple: 'gradient-purple',
+  red: 'gradient-red',
 }
 
 export function StatCard({ label, value, icon, color = 'blue', subtitle }: StatCardProps) {

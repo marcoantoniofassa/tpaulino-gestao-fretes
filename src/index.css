@@ -39,6 +39,10 @@
     background: linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%);
   }
 
+  .gradient-red {
+    background: linear-gradient(135deg, #dc2626 0%, #f87171 100%);
+  }
+
   .gradient-dark {
     background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
   }

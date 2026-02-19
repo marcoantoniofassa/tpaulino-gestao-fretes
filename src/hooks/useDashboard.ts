@@ -8,6 +8,8 @@ interface DashboardData {
   receitaLiquida: number
   mediaDiaria: number
   fretesHoje: number
+  totalGastos: number
+  lucro: number
   fretesPorTerminal: { terminal: string; count: number; receita: number }[]
   fretesPorMotorista: { motorista: string; count: number; receita: number }[]
   receitaPorDia: { data: string; receita: number; fretes: number }[]
@@ -34,12 +36,20 @@ export function useDashboard(mes?: string) {
       .lte('data_frete', fimMes)
       .order('data_frete', { ascending: false })
 
+    const { data: gastosList } = await supabase
+      .from('tp_gastos')
+      .select('valor')
+      .gte('data', inicioMes)
+      .lte('data', fimMes)
+
     if (!fretes) { setLoading(false); return }
 
     const fretesTyped = fretes as FreteWithRelations[]
 
     const totalFretes = fretesTyped.length
     const receitaLiquida = fretesTyped.reduce((sum, f) => sum + f.valor_liquido, 0)
+    const totalGastos = (gastosList || []).reduce((sum, g) => sum + (g.valor || 0), 0)
+    const lucro = receitaLiquida - totalGastos
     const diasUnicos = new Set(fretesTyped.map(f => f.data_frete)).size
     const mediaDiaria = diasUnicos > 0 ? receitaLiquida / diasUnicos : 0
     const fretesHoje = fretesTyped.filter(f => f.data_frete === hoje).length
@@ -80,6 +90,8 @@ export function useDashboard(mes?: string) {
       receitaLiquida,
       mediaDiaria,
       fretesHoje,
+      totalGastos,
+      lucro,
       fretesPorTerminal,
       fretesPorMotorista,
       receitaPorDia,
@@ -101,6 +113,24 @@ export function useDashboard(mes?: string) {
         fetchDashboard()
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'tp_fretes' }, () => {
+        fetchDashboard()
+      })
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [fetchDashboard])
+
+  // Realtime: atualiza dashboard quando gastos mudam
+  useEffect(() => {
+    const channel = supabase
+      .channel('tp_dashboard_gastos')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'tp_gastos' }, () => {
+        fetchDashboard()
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tp_gastos' }, () => {
+        fetchDashboard()
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'tp_gastos' }, () => {
         fetchDashboard()
       })
       .subscribe()
