@@ -46,7 +46,8 @@ OCR via Gemini no N8N le fotos de tickets enviados por WhatsApp, grava no Supaba
 │   ├── hooks/
 │   │   ├── useAuth.ts
 │   │   ├── useFretes.ts       # Realtime (INSERT + UPDATE)
-│   │   ├── useDashboard.ts    # Realtime (INSERT + UPDATE + DELETE)
+│   │   ├── useGastos.ts       # Realtime (INSERT + UPDATE + DELETE) + create/toggle/delete
+│   │   ├── useDashboard.ts    # Realtime fretes + gastos (INSERT + UPDATE + DELETE)
 │   │   ├── usePagamentos.ts   # Pagamentos semanais (Supabase + localStorage fallback)
 │   │   ├── useMotoristas.ts
 │   │   ├── useVeiculos.ts
@@ -60,7 +61,8 @@ OCR via Gemini no N8N le fotos de tickets enviados por WhatsApp, grava no Supaba
 │   │   │   └── PageContainer.tsx
 │   │   ├── ui/          # Card, Badge, Button, PinInput, Spinner, etc
 │   │   ├── fretes/       # FreteCard (data + hora), FreteList, FreteFilters, FreteDetail
-│   │   ├── dashboard/    # KPIGrid, Charts
+│   │   ├── gastos/       # GastoCard, GastoForm (form colapsavel inline)
+│   │   ├── dashboard/    # KPIGrid (6 cards: fretes, receita, media, hoje, gastos, lucro), Charts
 │   │   ├── motoristas/
 │   │   └── veiculos/
 │   ├── pages/
@@ -68,6 +70,7 @@ OCR via Gemini no N8N le fotos de tickets enviados por WhatsApp, grava no Supaba
 │   │   ├── FretesPage.tsx
 │   │   ├── FreteDetailPage.tsx
 │   │   ├── PagamentosPage.tsx
+│   │   ├── GastosPage.tsx        # Cadastro de gastos (despesas caminhoes)
 │   │   ├── MotoristasPage.tsx
 │   │   ├── VeiculosPage.tsx
 │   │   └── LoginPage.tsx
@@ -86,11 +89,12 @@ OCR via Gemini no N8N le fotos de tickets enviados por WhatsApp, grava no Supaba
 | `tp_veiculos` | 6 veiculos (foto_url) |
 | `tp_terminais` | BTP, ECOPORTO, DPW, SANTOS_BRASIL |
 | `tp_pagamentos` | Status pagamento semanal por motorista (PAGO/PENDENTE) |
+| `tp_gastos` | Gastos operacionais (tipo, valor, veiculo, vencimento, forma_pagamento, foto) |
 | `tp_push_subscriptions` | Push subscriptions persistidas |
 | `tp_placa_aliases` | Correcoes OCR de placa |
 | `tp_auth` | PIN hash |
-| `tp_abastecimentos` | Stub fase 2 |
-| `tp_manutencoes` | Stub fase 2 |
+| `tp_abastecimentos` | Stub fase 2 (coberto por tp_gastos) |
+| `tp_manutencoes` | Stub fase 2 (coberto por tp_gastos) |
 
 ### Storage
 - Bucket `fotos` (publico) — fotos de veiculos e tickets
@@ -100,10 +104,11 @@ OCR via Gemini no N8N le fotos de tickets enviados por WhatsApp, grava no Supaba
 | Hook | INSERT | UPDATE | DELETE |
 |------|--------|--------|--------|
 | useFretes | Refetch | Refetch | - |
+| useGastos | Refetch | Refetch | Refetch |
 | useDashboard | Refetch | Refetch | Refetch |
 | useNotificacoes | Refetch | Refetch | - |
 
-Dashboard, fretes e notificacoes atualizam ao vivo sem reload.
+Dashboard (fretes + gastos), fretes, gastos e notificacoes atualizam ao vivo sem reload.
 
 ## Push Notifications
 
@@ -165,12 +170,14 @@ Webhook (Evolution) → Grupos → Filter → Convert → Gemini OCR → Busines
 
 - Todas as tabelas tem prefixo `tp_`
 - CSS: Tailwind utilities + gradients customizados em `index.css`
-- Cores: `tp-blue` (#1e40af), `tp-dark` (#0f172a), `tp-accent` (#f59e0b)
-- Mobile-first: bottom nav, cards touch-friendly
+- Cores: `tp-blue` (#1e40af), `tp-dark` (#0f172a), `tp-accent` (#f59e0b), gradients: blue/green/amber/purple/red/dark
+- Mobile-first: bottom nav (6 tabs), cards touch-friendly
 - Realtime: Supabase channels para fretes, dashboard e notificacoes
 - Build: `npm run build` (tsc + vite)
 - Start: `node server.js` (Express, NAO serve)
 - Timezone: `localDateStr()` evita bug UTC near midnight
+- Ciclo pagamento semanal: quarta a terça (getWeekRange em utils.ts)
+- Dashboard KPIs: 6 cards (fretes, receita liquida, media diaria, fretes hoje, gastos mes, lucro)
 
 ## URLs
 
