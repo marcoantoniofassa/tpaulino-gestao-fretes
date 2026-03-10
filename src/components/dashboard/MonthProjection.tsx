@@ -16,7 +16,7 @@ export function MonthProjection({ projecao }: MonthProjectionProps) {
   return (
     <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2.5">
       <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400 mb-1.5">
-        Projecao do mes ({projecao.diasComFrete}/{projecao.diasUteisEstimados} dias uteis)
+        Projeção do mês ({projecao.diasComFrete}/{projecao.diasUteisEstimados} dias úteis)
       </p>
       <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap">
         <span>~{projecao.fretes} fretes</span>
