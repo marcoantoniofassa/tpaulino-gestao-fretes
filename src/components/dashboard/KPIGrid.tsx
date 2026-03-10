@@ -12,7 +12,7 @@ interface KPIGridProps {
   periodLabel?: string
 }
 
-export function KPIGrid({ totalFretes, receitaLiquida, mediaDiaria, fretesHoje, totalGastos, lucro, periodLabel = 'Mes' }: KPIGridProps) {
+export function KPIGrid({ totalFretes, receitaLiquida, mediaDiaria, fretesHoje, totalGastos, lucro, periodLabel = 'Mês' }: KPIGridProps) {
   return (
     <div className="grid grid-cols-2 gap-3">
       <StatCard
@@ -22,13 +22,13 @@ export function KPIGrid({ totalFretes, receitaLiquida, mediaDiaria, fretesHoje, 
         color="blue"
       />
       <StatCard
-        label="Receita Liquida"
+        label="Receita Líquida"
         value={formatCurrency(receitaLiquida)}
         icon={<DollarSign size={16} />}
         color="green"
       />
       <StatCard
-        label="Media Diaria"
+        label="Média Diária"
         value={formatCurrency(mediaDiaria)}
         icon={<TrendingUp size={16} />}
         color="amber"

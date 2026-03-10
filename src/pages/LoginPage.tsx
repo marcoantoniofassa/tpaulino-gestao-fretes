@@ -16,7 +16,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
       const ok = await onLogin(pin)
       if (!ok) setError('PIN incorreto')
     } catch {
-      setError('Erro de conexao')
+      setError('Erro de conexão')
     }
     setLoading(false)
   }
@@ -41,11 +41,11 @@ export function LoginPage({ onLogin }: LoginPageProps) {
             className="w-24 h-24 rounded-2xl mx-auto mb-4 shadow-2xl border border-white/10"
           />
           <h1 className="text-2xl font-bold text-white">T Paulino</h1>
-          <p className="text-blue-200/60 text-sm mt-1">Gestao de Fretes</p>
+          <p className="text-blue-200/60 text-sm mt-1">Gestão de Fretes</p>
         </div>
 
         <div className="bg-white/95 backdrop-blur-md rounded-2xl p-6 w-full max-w-sm shadow-2xl border border-white/20">
-          <p className="text-center text-sm text-slate-500 mb-6">Digite seu PIN de 4 digitos</p>
+          <p className="text-center text-sm text-slate-500 mb-6">Digite seu PIN de 4 dígitos</p>
           <PinInput onComplete={handlePin} disabled={loading} />
           {error && (
             <p className="text-center text-sm text-red-500 mt-4">{error}</p>
@@ -56,7 +56,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
         </div>
 
         <p className="text-center text-blue-300/30 text-xs mt-8">
-          Porto de Santos &bull; Logistica
+          Porto de Santos &bull; Logística
         </p>
       </div>
     </div>

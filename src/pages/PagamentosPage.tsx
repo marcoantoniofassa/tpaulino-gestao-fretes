@@ -39,7 +39,7 @@ export function PagamentosPage() {
         <div className="gradient-amber rounded-2xl p-4 text-white shadow-lg">
           <div className="flex items-center gap-2 mb-1">
             <Wallet size={14} className="text-white/70" />
-            <span className="text-[11px] text-white/70 uppercase">Total Comissao</span>
+            <span className="text-[11px] text-white/70 uppercase">Total Comissão</span>
           </div>
           <p className="text-2xl font-bold">{formatCurrency(totalComissao)}</p>
         </div>

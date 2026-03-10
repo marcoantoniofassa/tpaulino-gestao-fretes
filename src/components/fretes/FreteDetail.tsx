@@ -69,7 +69,7 @@ export function FreteDetail({ frete }: FreteDetailProps) {
           <Row label="Registrado em" value={formatDateTime(frete.created_at)} subtle />
           <Row label="Terminal" value={frete.tp_terminais?.nome || 'N/A'} />
           <Row label="Placa" value={frete.tp_veiculos?.placa || 'N/A'} />
-          <Row label="Sequencia" value={frete.sequencia?.toString() || '-'} />
+          <Row label="Sequência" value={frete.sequencia?.toString() || '-'} />
           <Row label="Tipo" value={frete.tipo_frete} />
 
           {/* Container (editable) */}
@@ -102,9 +102,9 @@ export function FreteDetail({ frete }: FreteDetailProps) {
           <div className="pt-2 border-t border-slate-100 mt-4">
             <h4 className="text-sm font-semibold text-slate-700 mb-2">Valores</h4>
             <Row label="Valor Bruto" value={formatCurrency(frete.valor_bruto)} />
-            <Row label="Pedagio" value={formatCurrency(frete.pedagio)} />
-            <Row label="Comissao (25%)" value={formatCurrency(frete.comissao)} />
-            <Row label="Valor Liquido" value={formatCurrency(frete.valor_liquido)} bold />
+            <Row label="Pedágio" value={formatCurrency(frete.pedagio)} />
+            <Row label="Comissão (25%)" value={formatCurrency(frete.comissao)} />
+            <Row label="Valor Líquido" value={formatCurrency(frete.valor_liquido)} bold />
           </div>
 
           {/* Foto do ticket */}
@@ -132,7 +132,7 @@ export function FreteDetail({ frete }: FreteDetailProps) {
           {/* AI Corrections */}
           {frete.ai_corrections && Object.keys(frete.ai_corrections).length > 0 && (
             <div className="pt-2 border-t border-slate-100 mt-4">
-              <h4 className="text-sm font-semibold text-slate-700 mb-2">Correcoes IA</h4>
+              <h4 className="text-sm font-semibold text-slate-700 mb-2">Correções IA</h4>
               <pre className="text-xs bg-amber-50 p-3 rounded-lg overflow-x-auto">
                 {JSON.stringify(frete.ai_corrections, null, 2)}
               </pre>

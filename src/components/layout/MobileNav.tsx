@@ -8,7 +8,7 @@ const allNavItems = [
   { to: '/pagamentos', icon: Wallet, label: 'Pagam.', adminOnly: true },
   { to: '/gastos', icon: Receipt, label: 'Despesas', adminOnly: false },
   { to: '/motoristas', icon: Users, label: 'Motoristas', adminOnly: true },
-  { to: '/veiculos', icon: CarFront, label: 'Veiculos', adminOnly: true },
+  { to: '/veiculos', icon: CarFront, label: 'Veículos', adminOnly: true },
 ]
 
 interface MobileNavProps {

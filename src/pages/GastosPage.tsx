@@ -79,7 +79,7 @@ export function GastosPage() {
       ) : gastos.length === 0 ? (
         <div className="text-center py-12 text-slate-400">
           <Receipt size={32} className="mx-auto mb-2 opacity-40" />
-          <p className="text-sm">Nenhuma despesa neste mes</p>
+          <p className="text-sm">Nenhuma despesa neste mês</p>
         </div>
       ) : (
         <div className="flex flex-col gap-3">

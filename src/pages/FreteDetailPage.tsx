@@ -9,7 +9,7 @@ export function FreteDetailPage() {
   const { frete, loading } = useFrete(id)
 
   if (loading) return <PageContainer><Spinner /></PageContainer>
-  if (!frete) return <PageContainer><p className="text-center text-slate-400">Frete nao encontrado</p></PageContainer>
+  if (!frete) return <PageContainer><p className="text-center text-slate-400">Frete não encontrado</p></PageContainer>
 
   return (
     <PageContainer>

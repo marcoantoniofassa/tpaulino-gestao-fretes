@@ -176,19 +176,19 @@ export function GastoForm() {
 
       <div>
         <label className="text-xs font-medium text-slate-500 mb-1 block">
-          Veiculo {isAbastecimento && <span className="text-red-500">*</span>}
+          Veículo {isAbastecimento && <span className="text-red-500">*</span>}
         </label>
         <select value={veiculoId} onChange={e => setVeiculoId(e.target.value)} className={inputCls} required={isAbastecimento}>
-          <option value="">Geral (sem veiculo)</option>
+          <option value="">Geral (sem veículo)</option>
           {veiculos.map(v => <option key={v.id} value={v.id}>{v.placa}</option>)}
         </select>
       </div>
 
       <div>
-        <label className="text-xs font-medium text-slate-500 mb-1 block">Descricao</label>
+        <label className="text-xs font-medium text-slate-500 mb-1 block">Descrição</label>
         <input
           type="text"
-          placeholder="Descricao da despesa (opcional)"
+          placeholder="Descrição da despesa (opcional)"
           value={descricao}
           onChange={e => setDescricao(e.target.value)}
           className={inputCls}
@@ -218,11 +218,11 @@ export function GastoForm() {
       {(formaPagamento === 'PIX' || formaPagamento === 'BOLETO') && (
         <div>
           <label className="text-xs font-medium text-slate-500 mb-1 block">
-            {formaPagamento === 'PIX' ? 'Chave PIX' : 'Linha digitavel'}
+            {formaPagamento === 'PIX' ? 'Chave PIX' : 'Linha digitável'}
           </label>
           <input
             type="text"
-            placeholder={formaPagamento === 'PIX' ? 'Chave PIX (opcional)' : 'Codigo do boleto (opcional)'}
+            placeholder={formaPagamento === 'PIX' ? 'Chave PIX (opcional)' : 'Código do boleto (opcional)'}
             value={dadosPagamento}
             onChange={e => setDadosPagamento(e.target.value)}
             className={inputCls}

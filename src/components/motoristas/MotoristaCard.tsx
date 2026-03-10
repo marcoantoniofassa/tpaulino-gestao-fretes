@@ -46,7 +46,7 @@ export function MotoristaCard({ data }: MotoristaCardProps) {
           <p className="text-sm font-bold text-slate-800">
             {ultimoFrete ? formatDate(ultimoFrete) : '-'}
           </p>
-          <p className="text-xs text-slate-400">Ultimo</p>
+          <p className="text-xs text-slate-400">Último</p>
         </div>
       </div>
     </div>

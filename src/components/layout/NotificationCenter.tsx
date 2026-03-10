@@ -85,7 +85,7 @@ export function NotificationCenter() {
       <button
         onClick={() => setOpen(!open)}
         className="p-2 rounded-lg hover:bg-white/10 transition-colors relative"
-        aria-label="Notificacoes"
+        aria-label="Notificações"
       >
         {naoLidas > 0 ? (
           <BellRing size={20} className="text-tp-accent" />
@@ -103,7 +103,7 @@ export function NotificationCenter() {
         <div className="absolute right-0 top-12 w-80 max-w-[90vw] max-h-[70vh] bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden z-50 flex flex-col">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
-            <h3 className="text-sm font-bold text-slate-700">Notificacoes</h3>
+            <h3 className="text-sm font-bold text-slate-700">Notificações</h3>
             <div className="flex items-center gap-2">
               {naoLidas > 0 && (
                 <button
@@ -127,7 +127,7 @@ export function NotificationCenter() {
                 className="text-xs text-amber-800 font-medium flex items-center gap-2 w-full"
               >
                 <Bell size={14} />
-                Ativar notificacoes push
+                Ativar notificações push
                 <span className="ml-auto text-amber-600 text-[10px] bg-amber-200/60 px-2 py-0.5 rounded-full">Toque aqui</span>
               </button>
             </div>
@@ -145,7 +145,7 @@ export function NotificationCenter() {
             {notificacoes.length === 0 ? (
               <div className="py-12 text-center">
                 <Bell size={32} className="text-slate-200 mx-auto mb-2" />
-                <p className="text-sm text-slate-400">Nenhuma notificacao</p>
+                <p className="text-sm text-slate-400">Nenhuma notificação</p>
               </div>
             ) : (
               notificacoes.map(n => (

@@ -66,7 +66,7 @@ export function DashboardPage() {
             viewMode === 'mes' ? 'bg-tp-blue text-white shadow-sm' : 'text-slate-500'
           }`}
         >
-          Mes
+          Mês
         </button>
         <button
           onClick={() => setViewMode('semana')}
@@ -116,7 +116,7 @@ export function DashboardPage() {
             fretesHoje={data.fretesHoje}
             totalGastos={data.totalGastos}
             lucro={data.lucro}
-            periodLabel={viewMode === 'mes' ? 'Mes' : 'Semana'}
+            periodLabel={viewMode === 'mes' ? 'Mês' : 'Semana'}
           />
 
           {viewMode === 'mes' && data.projecao && (

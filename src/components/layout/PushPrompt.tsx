@@ -43,7 +43,7 @@ export function PushPrompt() {
           <Bell size={20} className="text-tp-blue" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-slate-800">Ativar notificacoes?</p>
+          <p className="text-sm font-semibold text-slate-800">Ativar notificações?</p>
           <p className="text-xs text-slate-500 mt-0.5">Receba alertas quando um novo frete entrar</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">

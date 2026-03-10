@@ -6,10 +6,10 @@ import { useVeiculos } from '@/hooks/useVeiculos'
 export function VeiculosPage() {
   const { veiculos, loading, refetch } = useVeiculos()
 
-  if (loading) return <PageContainer title="Veiculos"><Spinner /></PageContainer>
+  if (loading) return <PageContainer title="Veículos"><Spinner /></PageContainer>
 
   return (
-    <PageContainer title="Veiculos">
+    <PageContainer title="Veículos">
       <p className="text-sm text-slate-400 mb-3">Toque na foto para alterar</p>
       <div className="flex flex-col gap-3">
         {veiculos.map(v => (
