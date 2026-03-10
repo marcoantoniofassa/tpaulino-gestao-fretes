@@ -3,6 +3,15 @@ import { supabase } from '@/lib/supabase'
 import { localDateStr } from '@/lib/utils'
 import type { FreteWithRelations } from '@/types/database'
 
+export interface ProjecaoMensal {
+  fretes: number
+  receitaLiquida: number
+  despesas: number
+  margem: number
+  diasComFrete: number
+  diasUteisEstimados: number
+}
+
 interface DashboardData {
   totalFretes: number
   receitaLiquida: number
@@ -12,6 +21,7 @@ interface DashboardData {
   lucro: number
   fretesPorMotorista: { motorista: string; count: number; receita: number }[]
   receitaPorDia: { data: string; receita: number; fretes: number }[]
+  projecao: ProjecaoMensal | null
 }
 
 export function useDashboard(inicio: string, fim: string) {
@@ -66,6 +76,38 @@ export function useDashboard(inicio: string, fim: string) {
       .map(([data, v]) => ({ data, ...v }))
       .sort((a, b) => a.data.localeCompare(b.data))
 
+    // Projecao mensal: estimar fechamento do mes com base nos dias uteis
+    let projecao: ProjecaoMensal | null = null
+    const [anoInicio, mesInicio] = inicio.split('-').map(Number)
+    const [anoFim, mesFim] = fim.split('-').map(Number)
+    const isMonthView = anoInicio === anoFim && mesInicio === mesFim
+      && inicio.endsWith('-01')
+      && fim === `${anoFim}-${String(mesFim).padStart(2, '0')}-${String(new Date(anoFim, mesFim, 0).getDate()).padStart(2, '0')}`
+
+    if (isMonthView && diasUnicos > 0) {
+      // Contar domingos no mes para estimar dias uteis (~dias no mes - domingos)
+      const diasNoMes = new Date(anoInicio, mesInicio, 0).getDate()
+      let domingos = 0
+      for (let d = 1; d <= diasNoMes; d++) {
+        if (new Date(anoInicio, mesInicio - 1, d).getDay() === 0) domingos++
+      }
+      const diasUteisEstimados = diasNoMes - domingos
+
+      const diasRestantes = Math.max(0, diasUteisEstimados - diasUnicos)
+      const mediaFreteDia = totalFretes / diasUnicos
+      const mediaReceitaDia = receitaLiquida / diasUnicos
+      const mediaDespesaDia = totalGastos / diasUnicos
+
+      projecao = {
+        fretes: Math.round(totalFretes + mediaFreteDia * diasRestantes),
+        receitaLiquida: receitaLiquida + mediaReceitaDia * diasRestantes,
+        despesas: totalGastos + mediaDespesaDia * diasRestantes,
+        margem: (receitaLiquida + mediaReceitaDia * diasRestantes) - (totalGastos + mediaDespesaDia * diasRestantes),
+        diasComFrete: diasUnicos,
+        diasUteisEstimados,
+      }
+    }
+
     setData({
       totalFretes,
       receitaLiquida,
@@ -75,6 +117,7 @@ export function useDashboard(inicio: string, fim: string) {
       lucro,
       fretesPorMotorista,
       receitaPorDia,
+      projecao,
     })
     setLoading(false)
   }, [inicio, fim])

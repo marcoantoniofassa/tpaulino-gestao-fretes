@@ -140,7 +140,23 @@ export function FretesByDriver({ data }: FretesByDriverProps) {
             ]}
             contentStyle={tooltipStyle}
           />
-          <Bar dataKey="count" fill="#1e40af" radius={[0, 6, 6, 0]} barSize={20} />
+          <Bar
+            dataKey="count"
+            fill="#1e40af"
+            radius={[0, 6, 6, 0]}
+            barSize={20}
+            label={({ x, y, width, height, value }: any) => (
+              <text
+                x={x + width + 6}
+                y={y + height / 2}
+                fill="#64748b"
+                fontSize={11}
+                dominantBaseline="central"
+              >
+                {value}
+              </text>
+            )}
+          />
         </BarChart>
       </ResponsiveContainer>
     </div>

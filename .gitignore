@@ -8,3 +8,4 @@ dist-ssr
 *.log
 supabase/.temp/
 tsconfig.tsbuildinfo
+issues/

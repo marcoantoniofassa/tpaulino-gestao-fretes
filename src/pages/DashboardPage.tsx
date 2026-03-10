@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { PageContainer } from '@/components/layout/PageContainer'
 import { KPIGrid } from '@/components/dashboard/KPIGrid'
+import { MonthProjection } from '@/components/dashboard/MonthProjection'
 import { RevenueTimeline, FretesByDriver } from '@/components/dashboard/Charts'
 import { Spinner } from '@/components/ui/Spinner'
 import { useDashboard } from '@/hooks/useDashboard'
@@ -117,6 +118,10 @@ export function DashboardPage() {
             lucro={data.lucro}
             periodLabel={viewMode === 'mes' ? 'Mes' : 'Semana'}
           />
+
+          {viewMode === 'mes' && data.projecao && (
+            <MonthProjection projecao={data.projecao} />
+          )}
 
           <div className="mt-5 space-y-4">
             <RevenueTimeline data={data.receitaPorDia} />
