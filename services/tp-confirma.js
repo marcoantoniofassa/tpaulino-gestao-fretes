@@ -1,13 +1,6 @@
 // services/tp-confirma.js — v2-09 WhatsApp Confirmation (migrated from n8n)
-// Sends "Frete XXXX cadastrado." to the motorist's WhatsApp group
+// Sends "Frete CONTAINER cadastrado." to the motorist's WhatsApp group
 import { sendText } from './evolution.js'
-
-// Extract container suffix (last 4+ digits)
-function containerSuffix(container) {
-  if (!container) return '????'
-  const match = container.match(/(\d{4,})$/)
-  return match ? match[1] : container.slice(-4)
-}
 
 // Send confirmation message
 export async function confirmaFrete(container, chatJid) {
@@ -16,13 +9,12 @@ export async function confirmaFrete(container, chatJid) {
     return { success: false, reason: 'missing_data' }
   }
 
-  const suffix = containerSuffix(container)
-  const text = `Frete ${suffix} cadastrado.`
+  const text = `Frete ${container} cadastrado.`
 
   try {
     await sendText(chatJid, text)
     console.log(`[Confirma] Sent "${text}" to ${chatJid}`)
-    return { success: true, container: suffix }
+    return { success: true, container }
   } catch (err) {
     console.error(`[Confirma] Failed: ${err.message}`)
     return { success: false, error: err.message }
