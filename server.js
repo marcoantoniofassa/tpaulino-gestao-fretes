@@ -3,6 +3,11 @@ import webpush from 'web-push'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 
+// TP Services (migrated from n8n)
+import { mountOcrWebhook } from './services/tp-ocr-pipeline.js'
+import { mountConfirmaRoute } from './services/tp-confirma.js'
+import { startCrons } from './services/tp-crons.js'
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -18,7 +23,11 @@ const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_AN
 
 webpush.setVapidDetails('mailto:marcoantonio@contele.com.br', VAPID_PUBLIC, VAPID_PRIVATE)
 
-app.use(express.json())
+app.use(express.json({ limit: '10mb' })) // Increased for base64 images from Evolution
+
+// Mount TP service routes (OCR webhook, WhatsApp confirmation)
+mountOcrWebhook(app)
+mountConfirmaRoute(app)
 
 // In-memory push subscriptions (+ Supabase persistence)
 const subscriptions = new Map()
@@ -173,4 +182,7 @@ app.get('/{*path}', (_req, res) => {
 
 app.listen(PORT, () => {
   console.log(`T Paulino server on port ${PORT} | Push ready | DB: ${SUPABASE_KEY ? 'yes' : 'no'}`)
+
+  // Start cron jobs (healthcheck, safety net, abastecimento)
+  startCrons()
 })
