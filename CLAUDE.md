@@ -15,7 +15,7 @@ OCR via Gemini no N8N le fotos de tickets enviados por WhatsApp, grava no Supaba
 | Server | Express 5 (serve SPA + Push API) |
 | Auth | PIN 4 digitos + role (admin/supervisor) |
 | Push | Web Push API + VAPID + Service Worker |
-| OCR | N8N + Gemini 2.5 Flash Vision |
+| OCR | N8N + Gemini 2.0 Flash (v2: ingestao desacoplada) |
 | Deploy | Railway auto-deploy via git push |
 
 ## Estrutura
@@ -93,11 +93,12 @@ OCR via Gemini no N8N le fotos de tickets enviados por WhatsApp, grava no Supaba
 | `tp_push_subscriptions` | Push subscriptions persistidas |
 | `tp_placa_aliases` | Correcoes OCR de placa |
 | `tp_auth` | PIN hash + role (admin/supervisor) |
+| `tp_mensagens_raw` | Fila de processamento OCR (v2): imagem gravada ANTES do OCR, rastreabilidade, reprocessamento |
 | `tp_abastecimentos` | Stub fase 2 (coberto por tp_gastos) |
 | `tp_manutencoes` | Stub fase 2 (coberto por tp_gastos) |
 
 ### Storage
-- Bucket `fotos` (publico) — fotos de veiculos e tickets
+- Bucket `fotos` (publico) — fotos de veiculos, tickets e tickets raw (`tickets/{chat_jid}/{msg_id}.jpg`)
 
 ## Realtime
 
@@ -128,20 +129,44 @@ Dashboard (fretes + gastos), fretes, gastos e notificacoes atualizam ao vivo sem
 - `POST /api/push/subscribe` — registra subscription
 - `POST /api/push/send` — envia push (auth: `x-api-key: tp-push-2026`)
 
-## N8N Workflow
+## N8N Workflows
 
-**ID**: `Z7s30S9vl1Wi62aQ` | **Server**: `n8n-n8n-start.u0otng.easypanel.host`
+**Server**: `n8n-n8n-start.u0otng.easypanel.host`
 
+### v1 (legado, DESATIVAR apos dual-run)
+**ID**: `Z7s30S9vl1Wi62aQ` | 16 nodes | Google Sheets como backup
+
+### v2-02: Ingestao OCR (PRINCIPAL)
+**ID**: `CcXHTN3988U5wiue` | 17 nodes
 ```
-Webhook (Evolution) → Grupos → Filter → Convert → Gemini OCR → Business Rules → IF Ignorado
-  ├── TRUE → Notificar Ignorado → Salvar Execucao
-  └── FALSE ─┬── Google Sheets → WhatsApp Confirm → Salvar Execucao
-              └── Resolver FKs → POST Supabase → Push Notification
+Webhook (t-paulino-ocr-v2)
+  → INSERT tp_mensagens_raw (status=PENDENTE)
+  → Upload Storage (fotos/tickets/{jid}/{msg_id}.jpg)
+  → UPDATE raw (PROCESSANDO)
+  → Gemini OCR 2.0 Flash
+  → Business Rules + Resolver FKs
+  → IF valido: INSERT tp_fretes + foto_ticket_url + Push
+  → IF ignorado: UPDATE raw (IGNORADO)
+  → Error: UPDATE raw (ERRO, tentativas++)
 ```
 
-16 nodes | FK resolution hardcoded | Google Sheets como backup
+### v2-07: Healthcheck Evolution
+**ID**: `IOno0WREByb7VraY` | 11 nodes | A cada 30min
+Detecta estado zumbi da Evolution API. Alerta via push.
 
-### Resolver FKs — Features
+### v2-08: Auto Abastecimento OCR
+**ID**: `9b5xtQbeynCmrZol` | 19 nodes | A cada 15min
+Reprocessa IGNORADOS das ultimas 24h. Se for ficha de abastecimento, cadastra em tp_gastos.
+
+### v2-09: Confirmacao Frete WhatsApp
+**ID**: `SngWWaIm8ZtMxcNm` | Webhook: `/tp-confirma-frete`
+Envia "Frete XXXX cadastrado." no grupo do motorista apos sucesso.
+
+### v2-03: Safety Net + Limpeza
+**ID**: `1JZ777Ajf45ELUIq` | 31 nodes | Diario 06:00 BRT
+Reprocessa PENDENTE/ERRO (tentativas < 3). Alerta PENDENTE > 7 dias. Limpa OK > 90 dias.
+
+### Regras de Negocio (comum a todos)
 - Reverse lookup: `motorista_nome` e `terminal_nome` (nomes canonicos, sem erros OCR)
 - **Fallback de precos**: se OCR nao extrair valores (valor_bruto=0), aplica pricing padrao pelo terminal:
   - BTP/ECOPORTO: R$ 580 bruto, R$ 145 comissao, R$ 435 liquido
@@ -180,6 +205,39 @@ Webhook (Evolution) → Grupos → Filter → Convert → Gemini OCR → Busines
 - Dashboard: toggle Mes/Semana, KPIs dinamicos (Fretes/Despesas Mes ou Semana)
 - Roles: admin (acesso total), supervisor (so Despesas) — role vem da RPC tp_verify_pin
 - Despesas: tipo ABASTECIMENTO tem campos litros, preco_litro, km_odometro com auto-calculo
+
+## Abastecimentos — Cadastro Automatico (v2-08) + Manual
+
+### Regra de preco
+
+Caminhoes abastecem no **posto interno da ISIS** — ISIS cobra Thiago a parte. Preco NAO aparece na ficha. Usar preco medio estimado (diesel S10 Cubatao/SP, ~R$ 5,89/L fev/2026).
+
+### Dado critico: km odometro
+
+O **km no odometro** em cada abastecimento e essencial para calcular consumo (km/L) e detectar anomalias. Se a ficha nao tiver km, cobrar motorista/Thiago.
+
+### Como cadastrar
+
+1. Ler imagem da ficha no grupo WhatsApp do motorista
+2. Extrair: litros, controle posto, bomba, leitura, placa, data
+3. Buscar `veiculo_id` em `tp_veiculos` pela placa
+4. Inserir em `tp_gastos` via REST API (service_role key — disponivel no node "POST Supabase" do N8N workflow Z7s30S9vl1Wi62aQ):
+   - `tipo`: ABASTECIMENTO
+   - `forma_pagamento`: CARTAO_FROTA
+   - `status`: PENDENTE
+   - `preco_litro`: media diesel S10 Cubatao (~R$ 5,89/L fev/2026) — posto ISIS, preco cobrado a parte
+   - `valor`: litros × preco_litro
+   - `km_odometro`: **OBRIGATORIO** — sem km nao calcula consumo
+   - `descricao`: incluir "PRECO ESTIMADO" e "SEM KM" quando aplicavel
+5. Se km ausente: registrar mesmo assim mas cobrar informacao
+
+### Grupos WhatsApp dos motoristas
+
+| Motorista | Placa | JID |
+|-----------|-------|-----|
+| ALESSANDRO + RONALDO | FJR7B87, ECS0E09, NJY9B12 | `120363039509825419@g.us` |
+| CHRISTIAN | FEI3D86 | `120363423313474684@g.us` |
+| VALTER | GFR6A86 | `120363027158529382@g.us` |
 
 ## URLs
 
