@@ -129,49 +129,53 @@ Dashboard (fretes + gastos), fretes, gastos e notificacoes atualizam ao vivo sem
 - `POST /api/push/subscribe` — registra subscription
 - `POST /api/push/send` — envia push (auth: `x-api-key: tp-push-2026`)
 
-## N8N Workflows
+## Services (migrated from n8n, code in `services/`)
 
-**Server**: `n8n-n8n-start.u0otng.easypanel.host`
+All OCR processing, healthcheck, abastecimento and confirmation now run inside the Express server (no more n8n dependency).
 
-### v1 (legado, DESATIVAR apos dual-run)
-**ID**: `Z7s30S9vl1Wi62aQ` | 16 nodes | Google Sheets como backup
-
-### v2-02: Ingestao OCR (PRINCIPAL)
-**ID**: `CcXHTN3988U5wiue` | 17 nodes
+### Architecture
 ```
-Webhook (t-paulino-ocr-v2)
-  → INSERT tp_mensagens_raw (status=PENDENTE)
-  → Upload Storage (fotos/tickets/{jid}/{msg_id}.jpg)
-  → UPDATE raw (PROCESSANDO)
-  → Gemini OCR 2.0 Flash
-  → Business Rules + Resolver FKs
-  → IF valido: INSERT tp_fretes + foto_ticket_url + Push
-  → IF ignorado: UPDATE raw (IGNORADO)
-  → Error: UPDATE raw (ERRO, tentativas++)
+services/
+├── config.js              # Env vars, UUIDs, constants, group mapping
+├── supabase.js            # Supabase REST API helpers
+├── evolution.js           # Evolution API helpers
+├── gemini-ocr.js          # Gemini 2.0 Flash OCR (ticket + abastecimento)
+├── business-rules.js      # FK resolution, pricing, validation
+├── tp-ocr-pipeline.js     # v2-02: main OCR webhook pipeline
+├── tp-confirma.js         # v2-09: WhatsApp confirmation
+├── tp-healthcheck.js      # v2-07: Evolution healthcheck (30min cron)
+├── tp-safety-net.js       # v2-03: reprocess + cleanup (daily 06:00 BRT)
+├── tp-abastecimento.js    # v2-08: auto abastecimento OCR (15min cron)
+└── tp-crons.js            # Initialize all scheduled jobs
 ```
 
-### v2-07: Healthcheck Evolution
-**ID**: `IOno0WREByb7VraY` | 11 nodes | A cada 30min
-Detecta estado zumbi da Evolution API. Alerta via push.
+### Endpoints
+- `POST /api/tp/webhook` : Evolution webhook (v2-02 OCR pipeline)
+- `POST /api/tp/confirma-frete` : WhatsApp confirmation (v2-09)
+- `POST /webhook/t-paulino-ocr-v2` : Legacy path (backwards compat)
+- `POST /webhook/tp-confirma-frete` : Legacy path (backwards compat)
 
-### v2-08: Auto Abastecimento OCR
-**ID**: `9b5xtQbeynCmrZol` | 19 nodes | A cada 15min
-Reprocessa IGNORADOS das ultimas 24h. Se for ficha de abastecimento, cadastra em tp_gastos.
+### Crons (node-cron, timezone America/Sao_Paulo)
+- `*/30 * * * *` : Healthcheck Evolution (v2-07)
+- `*/15 * * * *` : Abastecimento scan (v2-08)
+- `0 6 * * *` : Safety Net + Cleanup (v2-03)
 
-### v2-09: Confirmacao Frete WhatsApp
-**ID**: `SngWWaIm8ZtMxcNm` | Webhook: `/tp-confirma-frete`
-Envia "Frete XXXX cadastrado." no grupo do motorista apos sucesso.
-
-### v2-03: Safety Net + Limpeza
-**ID**: `1JZ777Ajf45ELUIq` | 31 nodes | Diario 06:00 BRT
-Reprocessa PENDENTE/ERRO (tentativas < 3). Alerta PENDENTE > 7 dias. Limpa OK > 90 dias.
-
-### Regras de Negocio (comum a todos)
-- Reverse lookup: `motorista_nome` e `terminal_nome` (nomes canonicos, sem erros OCR)
-- **Fallback de precos**: se OCR nao extrair valores (valor_bruto=0), aplica pricing padrao pelo terminal:
-  - BTP/ECOPORTO: R$ 580 bruto, R$ 145 comissao, R$ 435 liquido
-  - DPW/SANTOS BRASIL: R$ 680 bruto, R$ 54,90 pedagio, R$ 170 comissao, R$ 455,10 liquido
+### Regras de Negocio
 - GROUP_MOTORISTA: grupo WhatsApp define motorista fixo (nao OCR)
+- Terminal pricing: BTP/ECOPORTO R$580, DPW/Santos Brasil R$680+R$54,90 pedagio
+- Comissao: 25% do valor bruto
+- Diesel estimado: R$ 5,89/L (posto ISIS, cobrado a parte)
+- Dedup abastecimento: mesmo veiculo em 30min
+
+### n8n Legacy (DESATIVAR apos validacao em codigo)
+| Workflow | ID n8n | Status |
+|----------|--------|--------|
+| v1 | `Z7s30S9vl1Wi62aQ` | DESATIVADO (webhook nao aponta mais) |
+| v2-02 | `CcXHTN3988U5wiue` | Migrado para `tp-ocr-pipeline.js` |
+| v2-03 | `1JZ777Ajf45ELUIq` | Migrado para `tp-safety-net.js` |
+| v2-07 | `IOno0WREByb7VraY` | Migrado para `tp-healthcheck.js` |
+| v2-08 | `9b5xtQbeynCmrZol` | Migrado para `tp-abastecimento.js` |
+| v2-09 | `SngWWaIm8ZtMxcNm` | Migrado para `tp-confirma.js` |
 
 ## Env Vars (Railway)
 
@@ -179,7 +183,13 @@ Reprocessa PENDENTE/ERRO (tentativas < 3). Alerta PENDENTE > 7 dias. Limpa OK > 
 |-----|-----------|
 | `PORT` | Injetado pelo Railway |
 | `TZ` | `America/Sao_Paulo` |
-| `SUPABASE_ANON_KEY` | Para server.js (push persistence) |
+| `SUPABASE_URL` | `https://dfuajmyhpfgxgonsejsc.supabase.co` |
+| `SUPABASE_SERVICE_KEY` | Service role key (OCR pipeline, storage) |
+| `SUPABASE_ANON_KEY` | Para push persistence (fallback) |
+| `GEMINI_API_KEY` | Gemini 2.0 Flash OCR |
+| `EVOLUTION_API_ENDPOINT` | Evolution API URL |
+| `EVOLUTION_API_KEY` | Evolution API key |
+| `EVOLUTION_INSTANCE` | Instance name (`marcofassa`) |
 | `VAPID_PUBLIC_KEY` | Chave publica push (tem default no codigo) |
 | `VAPID_PRIVATE_KEY` | Chave privada push (tem default no codigo) |
 | `PUSH_API_KEY` | API key pro /api/push/send (default: `tp-push-2026`) |
