@@ -57,12 +57,13 @@ export async function uploadStorage(path, buffer, contentType = 'image/jpeg') {
   if (!res.ok) throw new Error(`Storage upload ${path}: ${res.status} ${await res.text()}`)
 }
 
-// Delete from storage
-export async function deleteStorage(paths) {
-  const res = await fetch(`${STORAGE}/object`, {
+// Delete from storage (bucket separate from paths)
+export async function deleteStorage(bucket, paths) {
+  const list = Array.isArray(paths) ? paths : [paths]
+  const res = await fetch(`${STORAGE}/object/${bucket}`, {
     method: 'DELETE',
     headers: supaHeaders(),
-    body: JSON.stringify({ prefixes: Array.isArray(paths) ? paths : [paths] }),
+    body: JSON.stringify({ prefixes: list }),
   })
   if (!res.ok) console.warn(`Storage delete failed: ${res.status}`)
 }

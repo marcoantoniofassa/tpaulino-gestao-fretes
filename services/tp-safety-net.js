@@ -71,7 +71,7 @@ export async function runSafetyNet() {
       try {
         // Delete storage file
         if (record.media_supabase_path) {
-          await db.deleteStorage(`fotos/${record.media_supabase_path}`)
+          await db.deleteStorage('fotos', record.media_supabase_path)
         }
         // Delete raw record
         await db.del(

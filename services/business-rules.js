@@ -37,7 +37,7 @@ export function applyBusinessRules(ocr, chatJid) {
     terminal_key: null,
     terminal_id: null,
     terminal_nome: null,
-    data_frete: ocr.DATA || '',
+    data_frete: convertDateToISO(ocr.DATA) || '',
     sequencia: ocr.SEQUENCIA || 0,
     valor_bruto: 0,
     pedagio: 0,
@@ -110,6 +110,15 @@ export function applyBusinessRules(ocr, chatJid) {
   }
 
   return result
+}
+
+// Convert DD/MM/YYYY to YYYY-MM-DD (Postgres date format)
+function convertDateToISO(dateStr) {
+  if (!dateStr) return null
+  const parts = dateStr.split('/')
+  if (parts.length !== 3) return dateStr
+  const [d, m, y] = parts
+  return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
 }
 
 // Process abastecimento OCR result

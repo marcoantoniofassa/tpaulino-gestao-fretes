@@ -226,8 +226,8 @@ function sendPush(motorista, terminal, container, valorLiquido) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      title: `${motorista} - ${terminal}`,
-      body: `${container || 'S/N'} - R$ ${valorLiquido?.toFixed(2) || '0.00'}`,
+      title: `${motorista} — ${terminal}`,
+      body: `${container || 'S/N'} — R$ ${valorLiquido?.toFixed(2) || '0.00'}`,
       tag: 'novo_frete',
       url: '/fretes',
     }),
