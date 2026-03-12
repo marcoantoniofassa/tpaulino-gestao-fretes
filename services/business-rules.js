@@ -146,12 +146,11 @@ export function processAbastecimento(ocr, chatJid) {
     forma_pagamento: 'CARTAO_FROTA',
     status: 'PENDENTE',
     veiculo_id,
-    motorista_id,
     litros,
     preco_litro: PRECO_LITRO_DIESEL,
     valor,
     km_odometro: ocr.KM_ODOMETRO ? parseInt(ocr.KM_ODOMETRO) : null,
     descricao: descParts.join(' | '),
-    data: ocr.DATA || new Date().toISOString().split('T')[0],
+    data: convertDateToISO(ocr.DATA) || new Date().toISOString().split('T')[0],
   }
 }
