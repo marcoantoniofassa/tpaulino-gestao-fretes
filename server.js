@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url'
 import { mountOcrWebhook } from './services/tp-ocr-pipeline.js'
 import { mountConfirmaRoute } from './services/tp-confirma.js'
 import { startCrons } from './services/tp-crons.js'
+import { runSafetyNet } from './services/tp-safety-net.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -173,6 +174,16 @@ app.post('/api/push/send', async (req, res) => {
 
   console.log(`Push sent: ${sent} ok, ${failed} failed, ${toRemove.length} removed`)
   res.json({ ok: true, sent, failed, total: subscriptions.size })
+})
+
+// Manual safety net trigger (reprocess ERRO/PENDENTE records)
+app.post('/api/tp/reprocess', async (req, res) => {
+  const apiKey = req.headers['x-api-key'] || req.query.key
+  if (apiKey !== PUSH_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+  const stats = await runSafetyNet()
+  res.json({ ok: true, stats })
 })
 
 // SPA fallback (Express 5 syntax)
