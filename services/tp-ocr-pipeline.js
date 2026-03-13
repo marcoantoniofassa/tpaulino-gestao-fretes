@@ -5,6 +5,7 @@ import * as db from './supabase.js'
 import { ocrTicket } from './gemini-ocr.js'
 import { applyBusinessRules } from './business-rules.js'
 import { confirmaFrete } from './tp-confirma.js'
+import { alertError } from './alerting.js'
 
 // Express route handler: POST /api/tp/webhook
 export function mountOcrWebhook(app) {
@@ -120,6 +121,9 @@ export async function processWebhookMessage(body) {
 
   } catch (err) {
     console.error(`[OCR] Pipeline error for ${msg.msg_id}:`, err.message)
+    // Alert Marco (Discord + WhatsApp)
+    const motorista = GROUP_MOTORISTA[msg.chat_jid]?.motorista || msg.chat_jid
+    alertError('Pipeline ERRO', `Motorista: ${motorista}\nMsg: ${msg.msg_id}\nErro: ${err.message}`)
     // Update raw -> ERRO
     try {
       const rawFilter = `msg_id=eq.${msg.msg_id}&chat_jid=eq.${encodeURIComponent(msg.chat_jid)}`

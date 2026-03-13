@@ -1,5 +1,6 @@
 // services/gemini-ocr.js — Gemini 2.0 Flash OCR for freight tickets and fuel receipts
 import { GEMINI_KEY } from './config.js'
+import { alertWarning } from './alerting.js'
 
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`
 
@@ -36,34 +37,64 @@ Return ONLY valid JSON, no markdown. Example:
 
 If not a fuel receipt: {"TIPO_DOCUMENTO":"OUTRO"}`
 
+const MAX_RETRIES = 3
+const RETRY_CODES = new Set([429, 500, 502, 503, 529])
+
 async function callGemini(base64, prompt) {
-  const res = await fetch(GEMINI_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{
-        parts: [
-          { text: prompt },
-          { inline_data: { mime_type: 'image/jpeg', data: base64 } },
-        ],
-      }],
-    }),
-    signal: AbortSignal.timeout(30000),
-  })
+  let lastError
 
-  if (!res.ok) throw new Error(`Gemini OCR: ${res.status} ${await res.text()}`)
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(GEMINI_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: prompt },
+              { inline_data: { mime_type: 'image/jpeg', data: base64 } },
+            ],
+          }],
+        }),
+        signal: AbortSignal.timeout(30000),
+      })
 
-  const data = await res.json()
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text
-  if (!text) throw new Error('Gemini returned empty response')
+      if (!res.ok) {
+        const body = await res.text()
+        lastError = new Error(`Gemini OCR: ${res.status} ${body}`)
 
-  // Strip markdown code fences if present
-  const clean = text.replace(/^```json?\n?/i, '').replace(/\n?```$/i, '').trim()
-  try {
-    return JSON.parse(clean)
-  } catch {
-    throw new Error(`Gemini OCR parse error: ${clean.substring(0, 200)}`)
+        if (RETRY_CODES.has(res.status) && attempt < MAX_RETRIES) {
+          const delay = Math.min(2000 * Math.pow(2, attempt - 1), 15000)
+          console.warn(`[Gemini] ${res.status} on attempt ${attempt}/${MAX_RETRIES}, retrying in ${delay}ms`)
+          if (attempt >= 2) alertWarning('Gemini retry', `Status ${res.status} na tentativa ${attempt}/${MAX_RETRIES}`)
+          await new Promise(r => setTimeout(r, delay))
+          continue
+        }
+        throw lastError
+      }
+
+      const data = await res.json()
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text
+      if (!text) throw new Error('Gemini returned empty response')
+
+      // Strip markdown code fences if present
+      const clean = text.replace(/^```json?\n?/i, '').replace(/\n?```$/i, '').trim()
+      try {
+        return JSON.parse(clean)
+      } catch {
+        throw new Error(`Gemini OCR parse error: ${clean.substring(0, 200)}`)
+      }
+    } catch (err) {
+      lastError = err
+      if (err.name === 'TimeoutError' && attempt < MAX_RETRIES) {
+        console.warn(`[Gemini] Timeout on attempt ${attempt}/${MAX_RETRIES}, retrying`)
+        continue
+      }
+      if (attempt === MAX_RETRIES) throw lastError
+    }
   }
+
+  throw lastError
 }
 
 export async function ocrTicket(base64) {
