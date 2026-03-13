@@ -37,7 +37,7 @@ export function applyBusinessRules(ocr, chatJid) {
     terminal_key: null,
     terminal_id: null,
     terminal_nome: null,
-    data_frete: convertDateToISO(ocr.DATA) || null,
+    data_frete: convertDateToISO(ocr.DATA) || new Date().toISOString().split('T')[0],
     sequencia: ocr.SEQUENCIA || 0,
     valor_bruto: 0,
     pedagio: 0,
