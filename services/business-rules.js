@@ -4,15 +4,19 @@ import {
   PEDAGIO, COMISSAO_PERCENTUAL, PRECO_LITRO_DIESEL,
 } from './config.js'
 
-// Detect terminal from OCR text
+// Detect terminal from OCR text (tolerant matching — losing a freight is worse than a wrong terminal)
 export function detectTerminal(local) {
   if (!local) return null
   const n = local.toUpperCase().trim()
-  if (n.includes('BTP')) return 'BTP'
-  if (n.includes('ECOPORTO')) return 'ECOPORTO'
+  if (n.includes('BTP') || n.includes('BRASIL TERMINAL')) return 'BTP'
+  if (n.includes('ECOPORTO') || n.includes('ECO PORTO')) return 'ECOPORTO'
   if (n.includes('DPW')) return 'DPW'
-  if (n.includes('SANTOS BRASIL')) return 'SANTOS BRASIL'
-  return null
+  if (n.includes('SANTOS BRASIL') || n.includes('SANTOS BR')) return 'SANTOS BRASIL'
+  // Partial matches — OCR sometimes truncates
+  if (n.includes('BRASIL') || n.includes('SANTO')) return 'SANTOS BRASIL'
+  // Fallback: log warning but don't lose the freight
+  console.warn(`[detectTerminal] Unknown terminal "${local}" — defaulting to BTP`)
+  return 'BTP'
 }
 
 // Parse DD/MM/YYYY to Date
