@@ -78,6 +78,9 @@ export async function processWebhookMessage(body) {
         status: 'IGNORADO',
         ocr_resultado: ocr,
       })
+      // Alert Marco when a ticket is ignored by business rules
+      const motorista = GROUP_MOTORISTA[msg.chat_jid]?.motorista || msg.chat_jid
+      alertError('Frete IGNORADO', `Motorista: ${motorista}\nContainer: ${ocr.CONTAINER || 'N/A'}\nMotivo: ${frete.erro_validacao}\nMsg: ${msg.msg_id}`)
       return
     }
 

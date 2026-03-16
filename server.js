@@ -8,6 +8,8 @@ import { mountOcrWebhook } from './services/tp-ocr-pipeline.js'
 import { mountConfirmaRoute } from './services/tp-confirma.js'
 import { startCrons } from './services/tp-crons.js'
 import { runSafetyNet } from './services/tp-safety-net.js'
+import { reprocessRawRecord } from './services/tp-ocr-pipeline.js'
+import * as db from './services/supabase.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -184,6 +186,25 @@ app.post('/api/tp/reprocess', async (req, res) => {
   }
   const stats = await runSafetyNet()
   res.json({ ok: true, stats })
+})
+
+// Reprocess a specific raw record by ID (any status, including IGNORADO)
+app.post('/api/tp/reprocess/:id', async (req, res) => {
+  const apiKey = req.headers['x-api-key'] || req.query.key
+  if (apiKey !== PUSH_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+  try {
+    const records = await db.query('tp_mensagens_raw', `select=*&id=eq.${req.params.id}`, 'return=representation')
+    if (!records.length) return res.status(404).json({ error: 'Record not found' })
+    // Reset status to PENDENTE so reprocess picks it up
+    await db.patch('tp_mensagens_raw', `id=eq.${req.params.id}`, { status: 'PENDENTE', tentativas: 0, frete_id: null, erro_detalhe: null })
+    const updated = await db.query('tp_mensagens_raw', `select=*&id=eq.${req.params.id}`, 'return=representation')
+    const result = await reprocessRawRecord(updated[0])
+    res.json({ ok: true, result })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
 })
 
 // SPA fallback (Express 5 syntax)
