@@ -63,7 +63,7 @@ export const TERMINAIS = {
 
 export const PEDAGIO = 54.90
 export const COMISSAO_PERCENTUAL = 0.25
-export const PRECO_LITRO_DIESEL = 5.89
+export const PRECO_LITRO_DIESEL = 6.25
 
 // Supabase REST headers
 export function supaHeaders(prefer = 'return=minimal') {

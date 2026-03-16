@@ -164,7 +164,7 @@ services/
 - GROUP_MOTORISTA: grupo WhatsApp define motorista fixo (nao OCR)
 - Terminal pricing: BTP/ECOPORTO R$580, DPW/Santos Brasil R$680+R$54,90 pedagio
 - Comissao: 25% do valor bruto
-- Diesel estimado: R$ 5,89/L (posto ISIS, cobrado a parte)
+- Diesel estimado: R$ 6,25/L (posto ISIS, cobrado a parte, atualizado mar/2026)
 - Dedup abastecimento: mesmo veiculo em 30min
 
 ### n8n Legacy (DESATIVAR apos validacao em codigo)
@@ -235,7 +235,7 @@ O **km no odometro** em cada abastecimento e essencial para calcular consumo (km
    - `tipo`: ABASTECIMENTO
    - `forma_pagamento`: CARTAO_FROTA
    - `status`: PENDENTE
-   - `preco_litro`: media diesel S10 Cubatao (~R$ 5,89/L fev/2026) — posto ISIS, preco cobrado a parte
+   - `preco_litro`: media diesel S10 Cubatao (~R$ 6,25/L mar/2026) — posto ISIS, preco cobrado a parte
    - `valor`: litros × preco_litro
    - `km_odometro`: **OBRIGATORIO** — sem km nao calcula consumo
    - `descricao`: incluir "PRECO ESTIMADO" e "SEM KM" quando aplicavel
