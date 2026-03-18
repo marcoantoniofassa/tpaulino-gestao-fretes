@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { uploadPhoto } from '@/lib/storage'
-import type { GastoWithRelations } from '@/types/database'
+import type { GastoWithRelations, GastoParcela } from '@/types/database'
 
 interface GastosFilter {
   tipo?: string
@@ -12,6 +12,15 @@ interface GastosFilter {
   semanaFim?: string // YYYY-MM-DD
 }
 
+export interface ParcelaInput {
+  numero: number
+  total_parcelas: number
+  valor: number
+  vencimento: string | null
+  forma_pagamento: string
+  dados_pagamento: string | null
+}
+
 export function useGastos(filters?: GastosFilter) {
   const [gastos, setGastos] = useState<GastoWithRelations[]>([])
   const [loading, setLoading] = useState(true)
@@ -20,7 +29,7 @@ export function useGastos(filters?: GastosFilter) {
     setLoading(true)
     let query = supabase
       .from('tp_gastos')
-      .select('*, tp_veiculos(id, placa)')
+      .select('*, tp_veiculos(id, placa), tp_gasto_parcelas(*)')
       .order('data', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(200)
@@ -48,7 +57,14 @@ export function useGastos(filters?: GastosFilter) {
     if (error) {
       console.error('Error fetching gastos:', error)
     } else {
-      setGastos((data ?? []) as GastoWithRelations[])
+      // Sort parcelas by numero
+      const gastosData = (data ?? []) as GastoWithRelations[]
+      for (const g of gastosData) {
+        if (g.tp_gasto_parcelas && g.tp_gasto_parcelas.length > 0) {
+          g.tp_gasto_parcelas.sort((a, b) => a.numero - b.numero)
+        }
+      }
+      setGastos(gastosData)
     }
     setLoading(false)
   }, [filters?.tipo, filters?.status, filters?.veiculo_id, filters?.mes, filters?.semanaInicio, filters?.semanaFim])
@@ -69,7 +85,18 @@ export function useGastos(filters?: GastosFilter) {
       })
       .subscribe()
 
-    return () => { supabase.removeChannel(channel) }
+    // Also listen to parcelas changes
+    const parcelasChannel = supabase
+      .channel('tp_gasto_parcelas_changes')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tp_gasto_parcelas' }, () => {
+        fetchGastos()
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+      supabase.removeChannel(parcelasChannel)
+    }
   }, [fetchGastos])
 
   return { gastos, loading, refetch: fetchGastos }
@@ -89,7 +116,8 @@ export async function createGasto(
     preco_litro?: number | null
     km_odometro?: number | null
   },
-  foto?: File | null
+  foto?: File | null,
+  parcelas?: ParcelaInput[]
 ): Promise<{ id: string } | null> {
   const { data, error } = await supabase
     .from('tp_gastos')
@@ -114,6 +142,27 @@ export async function createGasto(
     return null
   }
 
+  // Insert parcelas if provided
+  if (parcelas && parcelas.length > 0) {
+    const parcelasRows = parcelas.map(p => ({
+      gasto_id: data.id,
+      numero: p.numero,
+      total_parcelas: p.total_parcelas,
+      valor: p.valor,
+      vencimento: p.vencimento || null,
+      forma_pagamento: p.forma_pagamento,
+      dados_pagamento: p.dados_pagamento || null,
+    }))
+
+    const { error: parcelasError } = await supabase
+      .from('tp_gasto_parcelas')
+      .insert(parcelasRows)
+
+    if (parcelasError) {
+      console.error('Error creating parcelas:', parcelasError)
+    }
+  }
+
   if (foto) {
     const fotoUrl = await uploadPhoto(foto, 'gastos', data.id)
     if (fotoUrl) {
@@ -128,6 +177,43 @@ export async function toggleGastoStatus(id: string, currentStatus: string) {
   const newStatus = currentStatus === 'PAGO' ? 'PENDENTE' : 'PAGO'
   const { error } = await supabase.from('tp_gastos').update({ status: newStatus }).eq('id', id)
   if (error) console.error('Error toggling gasto status:', error)
+}
+
+export async function toggleParcelaStatus(parcela: GastoParcela) {
+  const newStatus = parcela.status === 'PAGO' ? 'PENDENTE' : 'PAGO'
+
+  // Update parcela status
+  const { error } = await supabase
+    .from('tp_gasto_parcelas')
+    .update({ status: newStatus, updated_at: new Date().toISOString() })
+    .eq('id', parcela.id)
+
+  if (error) {
+    console.error('Error toggling parcela status:', error)
+    return
+  }
+
+  // Fetch all parcelas for this gasto to derive parent status
+  const { data: allParcelas, error: fetchError } = await supabase
+    .from('tp_gasto_parcelas')
+    .select('status')
+    .eq('gasto_id', parcela.gasto_id)
+
+  if (fetchError || !allParcelas) {
+    console.error('Error fetching parcelas:', fetchError)
+    return
+  }
+
+  // Parent is PAGO only when ALL parcelas are PAGO
+  const allPago = allParcelas.every(p => p.status === 'PAGO')
+  const parentStatus = allPago ? 'PAGO' : 'PENDENTE'
+
+  const { error: parentError } = await supabase
+    .from('tp_gastos')
+    .update({ status: parentStatus })
+    .eq('id', parcela.gasto_id)
+
+  if (parentError) console.error('Error updating parent gasto status:', parentError)
 }
 
 export async function deleteGasto(id: string) {

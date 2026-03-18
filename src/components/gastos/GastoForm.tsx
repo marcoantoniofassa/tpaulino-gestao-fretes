@@ -1,11 +1,20 @@
 import { useState, useEffect } from 'react'
-import { Plus, Loader2 } from 'lucide-react'
+import { Plus, Loader2, Trash2 } from 'lucide-react'
 import { useVeiculos } from '@/hooks/useVeiculos'
 import { createGasto } from '@/hooks/useGastos'
+import type { ParcelaInput } from '@/hooks/useGastos'
 import { localDateStr } from '@/lib/utils'
 
 const TIPOS = ['ABASTECIMENTO', 'BORRACHARIA', 'MANUTENCAO', 'PNEU', 'PECA', 'LAVAGEM', 'SEGURO', 'MULTA', 'DOCUMENTACAO', 'OUTRO']
 const FORMAS = ['PIX', 'BOLETO', 'DINHEIRO', 'CARTAO']
+
+interface ParcelaFormRow {
+  numero: number
+  valor: string
+  vencimento: string
+  forma_pagamento: string
+  dados_pagamento: string
+}
 
 export function GastoForm() {
   const { veiculos } = useVeiculos()
@@ -26,6 +35,10 @@ export function GastoForm() {
   const [precoLitro, setPrecoLitro] = useState('')
   const [kmOdometro, setKmOdometro] = useState('')
 
+  // Parcelamento fields
+  const [parcelado, setParcelado] = useState(false)
+  const [parcelas, setParcelas] = useState<ParcelaFormRow[]>([])
+
   const isAbastecimento = tipo === 'ABASTECIMENTO'
 
   // Auto-calculate valor when litros or precoLitro change
@@ -39,6 +52,57 @@ export function GastoForm() {
     }
   }, [litros, precoLitro, isAbastecimento])
 
+  // Initialize parcelas when toggling parcelado on
+  useEffect(() => {
+    if (parcelado && parcelas.length === 0) {
+      setParcelas([
+        { numero: 1, valor: '', vencimento: '', forma_pagamento: 'PIX', dados_pagamento: '' },
+        { numero: 2, valor: '', vencimento: '', forma_pagamento: 'BOLETO', dados_pagamento: '' },
+      ])
+    }
+    if (!parcelado) {
+      setParcelas([])
+    }
+  }, [parcelado]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function addParcela() {
+    const next = parcelas.length + 1
+    setParcelas([...parcelas, {
+      numero: next,
+      valor: '',
+      vencimento: '',
+      forma_pagamento: 'BOLETO',
+      dados_pagamento: '',
+    }])
+  }
+
+  function removeParcela(index: number) {
+    if (parcelas.length <= 2) return
+    const updated = parcelas.filter((_, i) => i !== index).map((p, i) => ({ ...p, numero: i + 1 }))
+    setParcelas(updated)
+  }
+
+  function updateParcela(index: number, field: keyof ParcelaFormRow, value: string) {
+    const updated = [...parcelas]
+    updated[index] = { ...updated[index], [field]: value }
+    setParcelas(updated)
+  }
+
+  function distribuirIgualmente() {
+    const v = parseFloat(valor)
+    if (!v || v <= 0 || parcelas.length === 0) return
+    const valorParcela = (v / parcelas.length).toFixed(2)
+    const updated = parcelas.map(p => ({ ...p, valor: valorParcela }))
+    // Ajustar centavos na ultima parcela
+    const soma = updated.reduce((s, p) => s + parseFloat(p.valor || '0'), 0)
+    const diff = v - soma
+    if (Math.abs(diff) > 0.001) {
+      const last = updated[updated.length - 1]
+      last.valor = (parseFloat(last.valor) + diff).toFixed(2)
+    }
+    setParcelas(updated)
+  }
+
   function reset() {
     setTipo('MANUTENCAO')
     setValor('')
@@ -51,6 +115,8 @@ export function GastoForm() {
     setLitros('')
     setPrecoLitro('')
     setKmOdometro('')
+    setParcelado(false)
+    setParcelas([])
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -59,7 +125,42 @@ export function GastoForm() {
     if (!v || v <= 0) return
     if (isAbastecimento && !veiculoId) return
 
+    // Validate parcelas
+    if (parcelado) {
+      const somaParcelas = parcelas.reduce((s, p) => s + (parseFloat(p.valor) || 0), 0)
+      if (Math.abs(somaParcelas - v) > 0.01) {
+        alert(`Soma das parcelas (R$ ${somaParcelas.toFixed(2)}) difere do valor total (R$ ${v.toFixed(2)})`)
+        return
+      }
+      for (const p of parcelas) {
+        if (!p.valor || parseFloat(p.valor) <= 0) {
+          alert(`Parcela ${p.numero} sem valor`)
+          return
+        }
+      }
+    }
+
     setSaving(true)
+
+    // Build parcelas input
+    let parcelasInput: ParcelaInput[] | undefined
+    if (parcelado && parcelas.length > 0) {
+      parcelasInput = parcelas.map(p => ({
+        numero: p.numero,
+        total_parcelas: parcelas.length,
+        valor: parseFloat(p.valor),
+        vencimento: p.vencimento || null,
+        forma_pagamento: p.forma_pagamento,
+        dados_pagamento: p.dados_pagamento || null,
+      }))
+    }
+
+    // For parcelado: forma_pagamento = PARCELADO, vencimento = last parcela
+    const gastoFormaPgto = parcelado ? 'PARCELADO' : formaPagamento
+    const gastoVencimento = parcelado
+      ? (parcelas.filter(p => p.vencimento).sort((a, b) => b.vencimento.localeCompare(a.vencimento))[0]?.vencimento || null)
+      : (vencimento || null)
+
     const result = await createGasto(
       {
         data: localDateStr(),
@@ -67,14 +168,15 @@ export function GastoForm() {
         valor: v,
         veiculo_id: veiculoId || null,
         descricao: descricao || null,
-        vencimento: vencimento || null,
-        forma_pagamento: formaPagamento,
-        dados_pagamento: dadosPagamento || null,
+        vencimento: gastoVencimento,
+        forma_pagamento: gastoFormaPgto,
+        dados_pagamento: parcelado ? null : (dadosPagamento || null),
         litros: isAbastecimento && litros ? parseFloat(litros) : null,
         preco_litro: isAbastecimento && precoLitro ? parseFloat(precoLitro) : null,
         km_odometro: isAbastecimento && kmOdometro ? parseInt(kmOdometro) : null,
       },
-      foto
+      foto,
+      parcelasInput
     )
     setSaving(false)
 
@@ -109,7 +211,7 @@ export function GastoForm() {
         </div>
         {!isAbastecimento && (
           <div>
-            <label className="text-xs font-medium text-slate-500 mb-1 block">Valor (R$)</label>
+            <label className="text-xs font-medium text-slate-500 mb-1 block">Valor Total (R$)</label>
             <input
               type="number"
               step="0.01"
@@ -176,67 +278,195 @@ export function GastoForm() {
 
       <div>
         <label className="text-xs font-medium text-slate-500 mb-1 block">
-          Veículo {isAbastecimento && <span className="text-red-500">*</span>}
+          Veiculo {isAbastecimento && <span className="text-red-500">*</span>}
         </label>
         <select value={veiculoId} onChange={e => setVeiculoId(e.target.value)} className={inputCls} required={isAbastecimento}>
-          <option value="">Geral (sem veículo)</option>
+          <option value="">Geral (sem veiculo)</option>
           {veiculos.map(v => <option key={v.id} value={v.id}>{v.placa}</option>)}
         </select>
       </div>
 
       <div>
-        <label className="text-xs font-medium text-slate-500 mb-1 block">Descrição</label>
+        <label className="text-xs font-medium text-slate-500 mb-1 block">Descricao</label>
         <input
           type="text"
-          placeholder="Descrição da despesa (opcional)"
+          placeholder="Descricao da despesa (opcional)"
           value={descricao}
           onChange={e => setDescricao(e.target.value)}
           className={inputCls}
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="text-xs font-medium text-slate-500 mb-1 block">Pagamento</label>
-          <select value={formaPagamento} onChange={e => setFormaPagamento(e.target.value)} className={inputCls}>
-            {FORMAS.map(f => <option key={f} value={f}>{f}</option>)}
-          </select>
-        </div>
-        {formaPagamento === 'BOLETO' && (
-          <div>
-            <label className="text-xs font-medium text-slate-500 mb-1 block">Vencimento</label>
-            <input
-              type="date"
-              value={vencimento}
-              onChange={e => setVencimento(e.target.value)}
-              className={inputCls}
-            />
-          </div>
-        )}
+      {/* Parcelamento toggle */}
+      <div className="flex items-center gap-3 py-1">
+        <label className="relative inline-flex items-center cursor-pointer">
+          <input
+            type="checkbox"
+            checked={parcelado}
+            onChange={e => setParcelado(e.target.checked)}
+            className="sr-only peer"
+          />
+          <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+        </label>
+        <span className="text-sm font-medium text-slate-600">Parcelado?</span>
       </div>
 
-      {(formaPagamento === 'PIX' || formaPagamento === 'BOLETO') && (
-        <div>
-          <label className="text-xs font-medium text-slate-500 mb-1 block">
-            {formaPagamento === 'PIX' ? 'Chave PIX' : 'Código do boleto'}
-          </label>
-          {formaPagamento === 'BOLETO' ? (
-            <textarea
-              placeholder="Cole aqui a linha digitável ou código de barras"
-              value={dadosPagamento}
-              onChange={e => setDadosPagamento(e.target.value)}
-              inputMode="numeric"
-              rows={2}
-              className={inputCls + ' resize-none'}
-            />
-          ) : (
-            <input
-              type="text"
-              placeholder="Chave PIX (opcional)"
-              value={dadosPagamento}
-              onChange={e => setDadosPagamento(e.target.value)}
-              className={inputCls}
-            />
+      {/* Simple payment fields (when NOT parcelado) */}
+      {!parcelado && (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-slate-500 mb-1 block">Pagamento</label>
+              <select value={formaPagamento} onChange={e => setFormaPagamento(e.target.value)} className={inputCls}>
+                {FORMAS.map(f => <option key={f} value={f}>{f}</option>)}
+              </select>
+            </div>
+            {formaPagamento === 'BOLETO' && (
+              <div>
+                <label className="text-xs font-medium text-slate-500 mb-1 block">Vencimento</label>
+                <input
+                  type="date"
+                  value={vencimento}
+                  onChange={e => setVencimento(e.target.value)}
+                  className={inputCls}
+                />
+              </div>
+            )}
+          </div>
+
+          {(formaPagamento === 'PIX' || formaPagamento === 'BOLETO') && (
+            <div>
+              <label className="text-xs font-medium text-slate-500 mb-1 block">
+                {formaPagamento === 'PIX' ? 'Chave PIX' : 'Codigo do boleto'}
+              </label>
+              {formaPagamento === 'BOLETO' ? (
+                <textarea
+                  placeholder="Cole aqui a linha digitavel ou codigo de barras"
+                  value={dadosPagamento}
+                  onChange={e => setDadosPagamento(e.target.value)}
+                  inputMode="numeric"
+                  rows={2}
+                  className={inputCls + ' resize-none'}
+                />
+              ) : (
+                <input
+                  type="text"
+                  placeholder="Chave PIX (opcional)"
+                  value={dadosPagamento}
+                  onChange={e => setDadosPagamento(e.target.value)}
+                  className={inputCls}
+                />
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Parcelas editor (when parcelado) */}
+      {parcelado && (
+        <div className="space-y-3 bg-slate-50 rounded-xl p-3 border border-slate-200">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
+              {parcelas.length} Parcelas
+            </span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={distribuirIgualmente}
+                className="text-xs text-blue-600 font-medium hover:text-blue-700"
+                disabled={!valor || parseFloat(valor) <= 0}
+              >
+                Dividir igual
+              </button>
+              <button
+                type="button"
+                onClick={addParcela}
+                className="text-xs text-blue-600 font-medium hover:text-blue-700 flex items-center gap-1"
+              >
+                <Plus size={12} /> Parcela
+              </button>
+            </div>
+          </div>
+
+          {parcelas.map((p, i) => (
+            <div key={i} className="bg-white rounded-lg p-3 border border-slate-100 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-700">Parcela {p.numero}</span>
+                {parcelas.length > 2 && (
+                  <button
+                    type="button"
+                    onClick={() => removeParcela(i)}
+                    className="p-1 rounded hover:bg-red-50 text-slate-300 hover:text-red-500"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] text-slate-400 block">Valor (R$)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="0,00"
+                    value={p.valor}
+                    onChange={e => updateParcela(i, 'valor', e.target.value)}
+                    className={inputCls + ' text-xs'}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-400 block">Forma</label>
+                  <select
+                    value={p.forma_pagamento}
+                    onChange={e => updateParcela(i, 'forma_pagamento', e.target.value)}
+                    className={inputCls + ' text-xs'}
+                  >
+                    {FORMAS.map(f => <option key={f} value={f}>{f}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] text-slate-400 block">Vencimento</label>
+                  <input
+                    type="date"
+                    value={p.vencimento}
+                    onChange={e => updateParcela(i, 'vencimento', e.target.value)}
+                    className={inputCls + ' text-xs'}
+                  />
+                </div>
+                {(p.forma_pagamento === 'PIX' || p.forma_pagamento === 'BOLETO') && (
+                  <div>
+                    <label className="text-[10px] text-slate-400 block">
+                      {p.forma_pagamento === 'PIX' ? 'Chave PIX' : 'Cod. boleto'}
+                    </label>
+                    <input
+                      type="text"
+                      placeholder={p.forma_pagamento === 'PIX' ? 'Chave' : 'Linha digitavel'}
+                      value={p.dados_pagamento}
+                      onChange={e => updateParcela(i, 'dados_pagamento', e.target.value)}
+                      className={inputCls + ' text-xs'}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+
+          {/* Soma das parcelas */}
+          {parcelas.length > 0 && (
+            <div className="text-xs text-slate-500 text-right">
+              Soma parcelas: <span className="font-bold">
+                R$ {parcelas.reduce((s, p) => s + (parseFloat(p.valor) || 0), 0).toFixed(2)}
+              </span>
+              {valor && Math.abs(parcelas.reduce((s, p) => s + (parseFloat(p.valor) || 0), 0) - parseFloat(valor)) > 0.01 && (
+                <span className="text-red-500 ml-2">
+                  (difere do total R$ {parseFloat(valor).toFixed(2)})
+                </span>
+              )}
+            </div>
           )}
         </div>
       )}
