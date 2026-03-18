@@ -188,6 +188,48 @@ app.post('/api/tp/reprocess', async (req, res) => {
   res.json({ ok: true, stats })
 })
 
+// Retry failed confirmations
+app.post('/api/tp/retry-confirmacoes', async (req, res) => {
+  const apiKey = req.headers['x-api-key'] || req.query.key
+  if (apiKey !== PUSH_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+  try {
+    const { confirmaFrete } = await import('./services/tp-confirma.js')
+    // Find fretes with failed confirmation
+    const fretes = await db.query('tp_fretes',
+      'select=id,container,motorista_id&confirmacao_enviada=eq.false&status=eq.OK&order=created_at.desc&limit=50',
+      'return=representation'
+    )
+    if (!fretes.length) return res.json({ ok: true, retried: 0, message: 'No pending confirmations' })
+
+    // Need to resolve motorista_id -> chat_jid
+    const { GROUP_MOTORISTA, MOTORISTAS } = await import('./services/config.js')
+    const motoristIdToJid = {}
+    for (const [jid, cfg] of Object.entries(GROUP_MOTORISTA)) {
+      const uuid = MOTORISTAS[cfg.motorista]
+      if (uuid) motoristIdToJid[uuid] = jid
+    }
+
+    let ok = 0, fail = 0
+    for (const f of fretes) {
+      const chatJid = motoristIdToJid[f.motorista_id]
+      if (!chatJid) { fail++; continue }
+      try {
+        const result = await confirmaFrete(f.container, chatJid)
+        if (result.success) {
+          await db.patch('tp_fretes', `id=eq.${f.id}`, { confirmacao_enviada: true, confirmacao_erro: null })
+          ok++
+        } else { fail++ }
+      } catch { fail++ }
+    }
+    console.log(`[Retry] Confirmacoes: ${ok} ok, ${fail} fail`)
+    res.json({ ok: true, retried: ok, failed: fail, total: fretes.length })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // Reprocess a specific raw record by ID (any status, including IGNORADO)
 app.post('/api/tp/reprocess/:id', async (req, res) => {
   const apiKey = req.headers['x-api-key'] || req.query.key

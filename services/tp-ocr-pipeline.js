@@ -115,10 +115,19 @@ export async function processWebhookMessage(body) {
     // Step 10: Push notification (best-effort)
     sendPush(frete.motorista_nome, frete.terminal_nome, frete.container, frete.valor_liquido)
 
-    // Step 11: WhatsApp confirmation (best-effort)
-    confirmaFrete(frete.container, msg.chat_jid).catch(err =>
-      console.warn('[OCR] Confirma WhatsApp failed:', err.message)
-    )
+    // Step 11: WhatsApp confirmation (tracked)
+    try {
+      const confirmResult = await confirmaFrete(frete.container, msg.chat_jid)
+      if (confirmResult.success) {
+        await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_enviada: true })
+      } else {
+        await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_erro: confirmResult.error || 'unknown' })
+        console.warn(`[OCR] Confirma failed for ${frete.container}: ${confirmResult.error}`)
+      }
+    } catch (confirmErr) {
+      await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_erro: confirmErr.message?.substring(0, 500) }).catch(() => {})
+      console.warn(`[OCR] Confirma WhatsApp failed: ${confirmErr.message}`)
+    }
 
     console.log(`[OCR] Done: ${frete.container} ${frete.motorista_nome} R$${frete.valor_liquido}`)
 
@@ -200,7 +209,17 @@ export async function reprocessRawRecord(record) {
   })
 
   sendPush(frete.motorista_nome, frete.terminal_nome, frete.container, frete.valor_liquido)
-  confirmaFrete(frete.container, msg.chat_jid).catch(() => {})
+
+  try {
+    const confirmResult = await confirmaFrete(frete.container, msg.chat_jid)
+    if (confirmResult.success) {
+      await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_enviada: true })
+    } else {
+      await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_erro: confirmResult.error || 'unknown' })
+    }
+  } catch (confirmErr) {
+    await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_erro: confirmErr.message?.substring(0, 500) }).catch(() => {})
+  }
 
   return { status: 'OK', frete_id: freteRecord.id }
 }
