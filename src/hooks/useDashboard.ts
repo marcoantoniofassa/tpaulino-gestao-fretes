@@ -18,6 +18,7 @@ interface DashboardData {
   mediaDiaria: number
   fretesHoje: number
   totalGastos: number
+  totalGastosPendentes: number
   lucro: number
   fretesPorMotorista: { motorista: string; count: number; receita: number }[]
   receitaPorDia: { data: string; receita: number; fretes: number }[]
@@ -36,11 +37,12 @@ export function useDashboard(inicio: string, fim: string) {
       .select('*, tp_motoristas(id, nome), tp_veiculos(id, placa), tp_terminais(id, codigo, nome)')
       .gte('data_frete', inicio)
       .lte('data_frete', fim)
+      .eq('status', 'OK')
       .order('data_frete', { ascending: false })
 
     const { data: gastosList } = await supabase
       .from('tp_gastos')
-      .select('valor')
+      .select('valor, status')
       .gte('data', inicio)
       .lte('data', fim)
 
@@ -50,7 +52,11 @@ export function useDashboard(inicio: string, fim: string) {
 
     const totalFretes = fretesTyped.length
     const receitaLiquida = fretesTyped.reduce((sum, f) => sum + f.valor_liquido, 0)
-    const totalGastos = (gastosList || []).reduce((sum, g) => sum + (g.valor || 0), 0)
+    // Only count PAGO gastos in the total to avoid inflating with pending expenses
+    const gastosPagos = (gastosList || []).filter((g: any) => g.status === 'PAGO')
+    const totalGastos = gastosPagos.reduce((sum: number, g: any) => sum + (g.valor || 0), 0)
+    const gastosPendentes = (gastosList || []).filter((g: any) => g.status === 'PENDENTE')
+    const totalGastosPendentes = gastosPendentes.reduce((sum: number, g: any) => sum + (g.valor || 0), 0)
     const lucro = receitaLiquida - totalGastos
     const diasUnicos = new Set(fretesTyped.map(f => f.data_frete)).size
     const mediaDiaria = diasUnicos > 0 ? receitaLiquida / diasUnicos : 0
@@ -114,6 +120,7 @@ export function useDashboard(inicio: string, fim: string) {
       mediaDiaria,
       fretesHoje,
       totalGastos,
+      totalGastosPendentes,
       lucro,
       fretesPorMotorista,
       receitaPorDia,

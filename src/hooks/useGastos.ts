@@ -8,6 +8,8 @@ interface GastosFilter {
   veiculo_id?: string
   mes?: string // YYYY-MM
   status?: string // PAGO | PENDENTE
+  semanaInicio?: string // YYYY-MM-DD
+  semanaFim?: string // YYYY-MM-DD
 }
 
 export function useGastos(filters?: GastosFilter) {
@@ -32,7 +34,9 @@ export function useGastos(filters?: GastosFilter) {
     if (filters?.veiculo_id) {
       query = query.eq('veiculo_id', filters.veiculo_id)
     }
-    if (filters?.mes) {
+    if (filters?.semanaInicio && filters?.semanaFim) {
+      query = query.gte('data', filters.semanaInicio).lte('data', filters.semanaFim)
+    } else if (filters?.mes) {
       const inicioMes = `${filters.mes}-01`
       const [y, m] = filters.mes.split('-').map(Number)
       const lastDay = new Date(y, m, 0).getDate()
@@ -47,7 +51,7 @@ export function useGastos(filters?: GastosFilter) {
       setGastos((data ?? []) as GastoWithRelations[])
     }
     setLoading(false)
-  }, [filters?.tipo, filters?.status, filters?.veiculo_id, filters?.mes])
+  }, [filters?.tipo, filters?.status, filters?.veiculo_id, filters?.mes, filters?.semanaInicio, filters?.semanaFim])
 
   useEffect(() => { fetchGastos() }, [fetchGastos])
 
