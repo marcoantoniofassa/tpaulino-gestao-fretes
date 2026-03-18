@@ -7,6 +7,7 @@ interface GastosFilter {
   tipo?: string
   veiculo_id?: string
   mes?: string // YYYY-MM
+  status?: string // PAGO | PENDENTE
 }
 
 export function useGastos(filters?: GastosFilter) {
@@ -24,6 +25,9 @@ export function useGastos(filters?: GastosFilter) {
 
     if (filters?.tipo) {
       query = query.eq('tipo', filters.tipo)
+    }
+    if (filters?.status) {
+      query = query.eq('status', filters.status)
     }
     if (filters?.veiculo_id) {
       query = query.eq('veiculo_id', filters.veiculo_id)
@@ -43,7 +47,7 @@ export function useGastos(filters?: GastosFilter) {
       setGastos((data ?? []) as GastoWithRelations[])
     }
     setLoading(false)
-  }, [filters?.tipo, filters?.veiculo_id, filters?.mes])
+  }, [filters?.tipo, filters?.status, filters?.veiculo_id, filters?.mes])
 
   useEffect(() => { fetchGastos() }, [fetchGastos])
 
