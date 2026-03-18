@@ -60,8 +60,7 @@ export function VeiculoCard({ veiculo, onUpdate }: VeiculoCardProps) {
         <input
           ref={fileRef}
           type="file"
-          accept="image/*"
-          capture="environment"
+          accept="image/*,.pdf,.jpg,.jpeg,.png"
           onChange={handleFileChange}
           className="hidden"
         />

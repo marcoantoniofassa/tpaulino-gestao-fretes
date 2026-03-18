@@ -218,24 +218,34 @@ export function GastoForm() {
       {(formaPagamento === 'PIX' || formaPagamento === 'BOLETO') && (
         <div>
           <label className="text-xs font-medium text-slate-500 mb-1 block">
-            {formaPagamento === 'PIX' ? 'Chave PIX' : 'Linha digitável'}
+            {formaPagamento === 'PIX' ? 'Chave PIX' : 'Código do boleto'}
           </label>
-          <input
-            type="text"
-            placeholder={formaPagamento === 'PIX' ? 'Chave PIX (opcional)' : 'Código do boleto (opcional)'}
-            value={dadosPagamento}
-            onChange={e => setDadosPagamento(e.target.value)}
-            className={inputCls}
-          />
+          {formaPagamento === 'BOLETO' ? (
+            <textarea
+              placeholder="Cole aqui a linha digitável ou código de barras"
+              value={dadosPagamento}
+              onChange={e => setDadosPagamento(e.target.value)}
+              inputMode="numeric"
+              rows={2}
+              className={inputCls + ' resize-none'}
+            />
+          ) : (
+            <input
+              type="text"
+              placeholder="Chave PIX (opcional)"
+              value={dadosPagamento}
+              onChange={e => setDadosPagamento(e.target.value)}
+              className={inputCls}
+            />
+          )}
         </div>
       )}
 
       <div>
-        <label className="text-xs font-medium text-slate-500 mb-1 block">Foto comprovante</label>
+        <label className="text-xs font-medium text-slate-500 mb-1 block">Anexar documento</label>
         <input
           type="file"
-          accept="image/*"
-          capture="environment"
+          accept="image/*,.pdf,.jpg,.jpeg,.png"
           onChange={e => setFoto(e.target.files?.[0] || null)}
           className="w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200"
         />

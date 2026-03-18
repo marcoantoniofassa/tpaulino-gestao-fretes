@@ -1,4 +1,5 @@
-import { Trash2, Image, Fuel } from 'lucide-react'
+import { useState } from 'react'
+import { Trash2, Image, Fuel, FileText, Copy, Check, CheckCircle, Undo2 } from 'lucide-react'
 import { Badge } from '@/components/ui/Badge'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { toggleGastoStatus, deleteGasto } from '@/hooks/useGastos'
@@ -21,8 +22,15 @@ const tipoBadgeColor: Record<string, string> = {
   OUTRO: 'bg-slate-100 text-slate-700',
 }
 
+function isPdf(url: string) {
+  return url.toLowerCase().endsWith('.pdf')
+}
+
 export function GastoCard({ gasto }: GastoCardProps) {
-  async function handleToggleStatus() {
+  const [copied, setCopied] = useState(false)
+
+  async function handleToggleStatus(e: React.MouseEvent) {
+    e.stopPropagation()
     await toggleGastoStatus(gasto.id, gasto.status)
   }
 
@@ -33,12 +41,31 @@ export function GastoCard({ gasto }: GastoCardProps) {
     }
   }
 
+  async function handleCopy(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (!gasto.dados_pagamento) return
+    try {
+      await navigator.clipboard.writeText(gasto.dados_pagamento)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // fallback silencioso
+    }
+  }
+
   const isAbastecimento = gasto.tipo === 'ABASTECIMENTO'
+  const isPago = gasto.status === 'PAGO'
+  const hasDadosPagamento = !!gasto.dados_pagamento
+  const isBoleto = gasto.forma_pagamento === 'BOLETO'
+  const isPix = gasto.forma_pagamento === 'PIX'
 
   return (
-    <button
-      onClick={handleToggleStatus}
-      className="w-full bg-white rounded-xl p-4 shadow-sm border border-slate-100 text-left active:scale-[0.98] transition-transform"
+    <div
+      className={`w-full bg-white rounded-xl p-4 shadow-sm border text-left transition-all ${
+        isPago
+          ? 'border-green-200 opacity-60'
+          : 'border-slate-100'
+      }`}
     >
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
@@ -46,7 +73,7 @@ export function GastoCard({ gasto }: GastoCardProps) {
             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${tipoBadgeColor[gasto.tipo] || tipoBadgeColor.OUTRO}`}>
               {gasto.tipo}
             </span>
-            <Badge variant={gasto.status === 'PAGO' ? 'success' : 'warning'}>
+            <Badge variant={isPago ? 'success' : 'warning'}>
               {gasto.status}
             </Badge>
           </div>
@@ -67,30 +94,71 @@ export function GastoCard({ gasto }: GastoCardProps) {
           {gasto.descricao && (
             <p className="text-xs text-slate-400 truncate">{gasto.descricao}</p>
           )}
-        </div>
-        <div className="flex items-center gap-2 ml-2">
-          {gasto.foto_url && (
-            <a
-              href={gasto.foto_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={e => e.stopPropagation()}
-              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"
-            >
-              <Image size={16} />
-            </a>
+          {/* Dados de pagamento: boleto ou PIX */}
+          {hasDadosPagamento && (isBoleto || isPix) && (
+            <div className="flex items-center gap-2 mt-1.5">
+              <span className="text-xs text-slate-400 truncate max-w-[200px]">
+                {isBoleto ? 'Boleto: ' : 'PIX: '}
+                {gasto.dados_pagamento!.length > 24
+                  ? gasto.dados_pagamento!.slice(0, 24) + '...'
+                  : gasto.dados_pagamento}
+              </span>
+              <button
+                onClick={handleCopy}
+                className="flex-shrink-0 p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                title="Copiar"
+              >
+                {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+              </button>
+            </div>
           )}
-          <span className="text-lg font-bold text-red-600">
-            {formatCurrency(gasto.valor)}
-          </span>
+        </div>
+        <div className="flex flex-col items-end gap-2 ml-2">
+          <div className="flex items-center gap-2">
+            {gasto.foto_url && (
+              <a
+                href={gasto.foto_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={e => e.stopPropagation()}
+                className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"
+              >
+                {isPdf(gasto.foto_url) ? <FileText size={16} /> : <Image size={16} />}
+              </a>
+            )}
+            <span className="text-lg font-bold text-red-600">
+              {formatCurrency(gasto.valor)}
+            </span>
+            <button
+              onClick={handleDelete}
+              className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors"
+            >
+              <Trash2 size={16} />
+            </button>
+          </div>
+          {/* Botao explicito de baixa */}
           <button
-            onClick={handleDelete}
-            className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors"
+            onClick={handleToggleStatus}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              isPago
+                ? 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                : 'bg-green-500 text-white hover:bg-green-600'
+            }`}
           >
-            <Trash2 size={16} />
+            {isPago ? (
+              <>
+                <Undo2 size={13} />
+                Desfazer
+              </>
+            ) : (
+              <>
+                <CheckCircle size={13} />
+                Dar baixa
+              </>
+            )}
           </button>
         </div>
       </div>
-    </button>
+    </div>
   )
 }
