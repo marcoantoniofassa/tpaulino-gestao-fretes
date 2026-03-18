@@ -36,6 +36,11 @@ export interface Database {
         Insert: Omit<Gasto, 'id' | 'created_at'>
         Update: Partial<Omit<Gasto, 'id'>>
       }
+      tp_gasto_parcelas: {
+        Row: GastoParcela
+        Insert: Omit<GastoParcela, 'id' | 'created_at' | 'updated_at'>
+        Update: Partial<Omit<GastoParcela, 'id'>>
+      }
     }
     Functions: {
       tp_verify_pin: {
@@ -141,6 +146,21 @@ export interface Gasto {
   created_at: string
 }
 
+export interface GastoParcela {
+  id: string
+  gasto_id: string
+  numero: number
+  total_parcelas: number
+  valor: number
+  vencimento: string | null
+  forma_pagamento: string
+  dados_pagamento: string | null
+  status: 'PENDENTE' | 'PAGO'
+  created_at: string
+  updated_at: string
+}
+
 export interface GastoWithRelations extends Gasto {
   tp_veiculos: Pick<Veiculo, 'id' | 'placa'> | null
+  tp_gasto_parcelas?: GastoParcela[]
 }
