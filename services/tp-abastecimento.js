@@ -3,6 +3,7 @@
 import * as db from './supabase.js'
 import { ocrAbastecimento } from './gemini-ocr.js'
 import { processAbastecimento } from './business-rules.js'
+import { confirmaAbastecimento } from './tp-confirma.js'
 import { PUSH_URL, PUSH_API_KEY } from './config.js'
 
 export async function runAbastecimentoScan() {
@@ -61,6 +62,13 @@ export async function runAbastecimentoScan() {
           status: 'OK',
           ocr_resultado: ocr,
         })
+
+        // WhatsApp confirmation to group
+        try {
+          await confirmaAbastecimento(gasto.litros, record.chat_jid)
+        } catch (confirmErr) {
+          console.warn(`[Abastecimento] Confirma failed: ${confirmErr.message}`)
+        }
 
         // Push notification
         fetch(PUSH_URL, {

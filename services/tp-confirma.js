@@ -21,6 +21,25 @@ export async function confirmaFrete(container, chatJid) {
   }
 }
 
+// Send abastecimento confirmation to group
+export async function confirmaAbastecimento(litros, chatJid) {
+  if (!litros || !chatJid) {
+    console.warn('[Confirma] Missing litros or chat_jid for abastecimento, skipping')
+    return { success: false, reason: 'missing_data' }
+  }
+
+  const text = `Abastecimento ${litros}L registrado.`
+
+  try {
+    await sendText(chatJid, text)
+    console.log(`[Confirma] Sent "${text}" to ${chatJid}`)
+    return { success: true, litros }
+  } catch (err) {
+    console.error(`[Confirma] Abastecimento failed: ${err.message}`)
+    return { success: false, error: err.message }
+  }
+}
+
 // Express route handler (backwards compat for n8n calling this webhook)
 export function mountConfirmaRoute(app) {
   app.post('/api/tp/confirma-frete', async (req, res) => {
