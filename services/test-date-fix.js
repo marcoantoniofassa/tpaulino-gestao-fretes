@@ -12,14 +12,14 @@ function parseDate(dateStr) {
     const shortYear = y % 100
     const candidateDay = shortYear
     const candidateYear = 2000 + d
-    if (candidateYear >= 2025 && candidateYear <= 2027 && candidateDay >= 1 && candidateDay <= 31) {
+    if (candidateYear === 2026 && candidateDay >= 1 && candidateDay <= 31) {
       console.log(`  [auto-correct] ${dateStr} → ${candidateDay}/${m}/${candidateYear} (DD↔YY swap)`)
       d = candidateDay
       y = candidateYear
     }
   }
 
-  if (y < 2025 || y > 2027) {
+  if (y !== 2026) {
     console.log(`  [safety-net] year ${y} in "${dateStr}" → forcing 2026`)
     y = 2026
   }
@@ -60,13 +60,13 @@ const conversionTests = [
   { input: '21/03/2026', expect: '2026-03-21', desc: 'Normal date: no correction needed' },
   { input: '14/03/2026', expect: '2026-03-14', desc: 'Normal date: no correction needed' },
   { input: '01/01/2026', expect: '2026-01-01', desc: 'Start of year' },
-  { input: '31/12/2025', expect: '2025-12-31', desc: 'End of 2025' },
+  { input: '31/12/2025', expect: '2026-12-31', desc: 'Year 2025 forced to 2026' },
 
   // Edge: day > 27 can't be a valid year swap (2028+), should hit safety net
   { input: '28/03/2019', expect: '2026-03-28', desc: 'Day 28: candidateYear 2028 > 2027, safety net forces year 2026' },
 
   // Edge: very old year, day = 25
-  { input: '25/06/2018', expect: '2025-06-18', desc: 'Day 25: swap gives 2025, valid' },
+  { input: '25/06/2018', expect: '2026-06-25', desc: 'Day 25: swap gives 2025 (not 2026), no swap, safety net forces year to 2026, keeps day 25' },
 
   // Edge: null/empty
   { input: null, expect: null, desc: 'Null input' },

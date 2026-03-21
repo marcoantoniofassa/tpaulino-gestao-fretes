@@ -33,15 +33,15 @@ function parseDate(dateStr) {
     const shortYear = y % 100   // e.g. 2021 → 21
     const candidateDay = shortYear
     const candidateYear = 2000 + d  // e.g. d=26 → 2026
-    if (candidateYear >= 2025 && candidateYear <= 2027 && candidateDay >= 1 && candidateDay <= 31) {
+    if (candidateYear === 2026 && candidateDay >= 1 && candidateDay <= 31) {
       console.warn(`[parseDate] Auto-corrected date: ${dateStr} → ${candidateDay}/${m}/${candidateYear} (DD↔YY swap)`)
       d = candidateDay
       y = candidateYear
     }
   }
 
-  // Safety net: if year is still unreasonable, force 2026
-  if (y < 2025 || y > 2027) {
+  // Safety net: any year that isn't 2026, force 2026
+  if (y !== 2026) {
     console.warn(`[parseDate] Unreasonable year ${y} in "${dateStr}", forcing 2026`)
     y = 2026
   }

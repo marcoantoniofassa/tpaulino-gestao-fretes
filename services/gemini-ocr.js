@@ -11,7 +11,7 @@ Analyze this image and extract:
 2. CONTAINER: Container/shipment number (alphanumeric, e.g. OOLU6283142)
 3. MOTORISTA: Driver name (UPPERCASE)
 4. PLACA: Vehicle license plate (Brazilian format)
-5. DATA: Date in DD/MM/YYYY format. IMPORTANT: The year is ALWAYS 2025 or 2026. If the year appears faded, truncated, or ambiguous, assume 2026. If handwritten American format (M/D/YYYY), convert. Never return years before 2025.
+5. DATA: Date in DD/MM/YYYY format. IMPORTANT: The year is ALWAYS 2026. If the year appears faded, truncated, or ambiguous, use 2026. If handwritten American format (M/D/YYYY), convert. Never return years other than 2026.
 6. LOCAL: Terminal name. Keywords: BTP, DPW, SANTOS BRASIL, ECOPORTO
 7. SEQUENCIA: Sequence number (integer 1-50). Careful with similar handwritten digits (1 vs 7, 4 vs 9).
 
