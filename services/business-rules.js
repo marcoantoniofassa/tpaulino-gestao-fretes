@@ -50,7 +50,8 @@ function parseDate(dateStr) {
 }
 
 // Apply business rules to OCR result
-export function applyBusinessRules(ocr, chatJid) {
+// msgTimestamp: ISO string or Date of when the WhatsApp photo was sent (fallback for bad OCR dates)
+export function applyBusinessRules(ocr, chatJid, msgTimestamp) {
   const result = {
     ignorado: false,
     erro_validacao: null,
@@ -117,11 +118,10 @@ export function applyBusinessRules(ocr, chatJid) {
   result.valor_liquido = result.valor_bruto - result.comissao - result.pedagio
 
   // Rule 8: Date validation (within 7 days past / 7 days future)
-  // Window widened: OCR sometimes misreads day by a few digits, and port tickets
-  // can be pre-dated. 7 days each way is safe enough to catch OCR drift.
+  // If OCR date is out of range, fallback to message timestamp (when photo was sent).
+  // The driver sends the photo on the day of the freight, so it's a reliable approximation.
   const ticketDate = parseDate(ocr.DATA)
   if (ticketDate) {
-    // Compare date-only (strip time) to avoid boundary issues at midnight vs current hour
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     const ticketDay = new Date(ticketDate)
@@ -129,9 +129,17 @@ export function applyBusinessRules(ocr, chatJid) {
     const sevenDaysAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)
     const sevenDaysAhead = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000)
     if (ticketDay < sevenDaysAgo || ticketDay > sevenDaysAhead) {
-      result.ignorado = true
-      result.erro_validacao = `Date out of range: ${ocr.DATA}`
-      return result
+      // Fallback: use message timestamp as freight date
+      if (msgTimestamp) {
+        const msgDate = new Date(msgTimestamp)
+        const fallbackDate = `${msgDate.getFullYear()}-${String(msgDate.getMonth() + 1).padStart(2, '0')}-${String(msgDate.getDate()).padStart(2, '0')}`
+        console.warn(`[Rule8] OCR date "${ocr.DATA}" out of range, using msg timestamp as fallback: ${fallbackDate}`)
+        result.data_frete = fallbackDate
+      } else {
+        result.ignorado = true
+        result.erro_validacao = `Date out of range: ${ocr.DATA}`
+        return result
+      }
     }
   }
 

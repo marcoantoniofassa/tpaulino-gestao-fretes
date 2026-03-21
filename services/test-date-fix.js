@@ -89,8 +89,51 @@ const windowTests = [
   { input: fmt(addDays(now, 8)), expect: false, desc: '8 days ahead: out of range' },
   // Simulates Gemini reading day=26 when real day is 21 (today)
   { input: '26/03/2026', expect: true, desc: 'March 26: within 7-day future window from today' },
-  // January is way out
-  { input: '20/01/2026', expect: false, desc: 'January 20: 2 months ago, out of range' },
+  // January is way out (no fallback in isDateInRange, would need msgTimestamp)
+  { input: '20/01/2026', expect: false, desc: 'January 20: 2 months ago, out of range without fallback' },
+]
+
+// --- Test cases: Part 3 — msgTimestamp fallback ---
+// Simulates Rule 8 with fallback: if OCR date is out of range but msgTimestamp exists, use it
+function applyRule8WithFallback(ocrDate, msgTimestamp) {
+  const ticketDate = parseDate(ocrDate)
+  if (!ticketDate) return { ignored: false, date: null }
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const ticketDay = new Date(ticketDate)
+  ticketDay.setHours(0, 0, 0, 0)
+  const sevenDaysAgo = new Date(today.getTime() - 7 * 86400000)
+  const sevenDaysAhead = new Date(today.getTime() + 7 * 86400000)
+
+  if (ticketDay < sevenDaysAgo || ticketDay > sevenDaysAhead) {
+    if (msgTimestamp) {
+      const msgDate = new Date(msgTimestamp)
+      const fallback = `${msgDate.getFullYear()}-${String(msgDate.getMonth()+1).padStart(2,'0')}-${String(msgDate.getDate()).padStart(2,'0')}`
+      console.log(`  [fallback] OCR "${ocrDate}" out of range, using msg timestamp: ${fallback}`)
+      return { ignored: false, date: fallback }
+    }
+    return { ignored: true, date: null }
+  }
+  return { ignored: false, date: convertDateToISO(ocrDate) }
+}
+
+const fallbackTests = [
+  {
+    ocrDate: '20/01/2026', msgTimestamp: '2026-03-20T14:30:00Z',
+    expectIgnored: false, expectDate: '2026-03-20',
+    desc: 'CHRISTIAN: OCR reads Jan, fallback to msg timestamp (Mar 20)',
+  },
+  {
+    ocrDate: '20/01/2026', msgTimestamp: null,
+    expectIgnored: true, expectDate: null,
+    desc: 'Bad OCR date, no msgTimestamp: still IGNORADO',
+  },
+  {
+    ocrDate: '21/03/2026', msgTimestamp: '2026-03-21T10:00:00Z',
+    expectIgnored: false, expectDate: '2026-03-21',
+    desc: 'Normal date in range: uses OCR date, not fallback',
+  },
 ]
 
 let passed = 0
@@ -112,6 +155,17 @@ for (const t of windowTests) {
   const result = isDateInRange(t.input)
   const ok = result === t.expect
   console.log(`${ok ? 'PASS' : 'FAIL'}: "${t.input}" → ${result} (expected ${t.expect}) — ${t.desc}`)
+  if (ok) passed++; else failed++
+}
+
+console.log('\n=== Part 3: msgTimestamp fallback (Rule 8) ===\n')
+
+for (const t of fallbackTests) {
+  const result = applyRule8WithFallback(t.ocrDate, t.msgTimestamp)
+  const okIgnored = result.ignored === t.expectIgnored
+  const okDate = result.date === t.expectDate
+  const ok = okIgnored && okDate
+  console.log(`${ok ? 'PASS' : 'FAIL'}: OCR="${t.ocrDate}" msg=${t.msgTimestamp || 'null'} → ignored=${result.ignored} date=${result.date} — ${t.desc}`)
   if (ok) passed++; else failed++
 }
 

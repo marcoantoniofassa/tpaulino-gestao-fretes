@@ -69,8 +69,8 @@ export async function processWebhookMessage(body) {
     const ocr = await ocrTicket(msg.base64)
     console.log(`[OCR] Result: ${ocr.TIPO_DOCUMENTO} container=${ocr.CONTAINER}`)
 
-    // Step 6: Business rules
-    const frete = applyBusinessRules(ocr, msg.chat_jid)
+    // Step 6: Business rules (pass msg timestamp as fallback for bad OCR dates)
+    const frete = applyBusinessRules(ocr, msg.chat_jid, new Date(msg.timestamp * 1000).toISOString())
 
     if (frete.ignorado) {
       console.log(`[OCR] Ignored: ${frete.erro_validacao}`)
@@ -179,7 +179,7 @@ export async function reprocessRawRecord(record) {
 
   // OCR
   const ocr = await ocrTicket(base64)
-  const frete = applyBusinessRules(ocr, msg.chat_jid)
+  const frete = applyBusinessRules(ocr, msg.chat_jid, record.timestamp_msg)
 
   if (frete.ignorado) {
     await db.patch('tp_mensagens_raw', rawFilter, { status: 'IGNORADO', ocr_resultado: ocr })
