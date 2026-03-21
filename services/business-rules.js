@@ -116,13 +116,19 @@ export function applyBusinessRules(ocr, chatJid) {
   // Rule 7: Net value
   result.valor_liquido = result.valor_bruto - result.comissao - result.pedagio
 
-  // Rule 8: Date validation (within 7 days)
+  // Rule 8: Date validation (within 7 days past / 7 days future)
+  // Window widened: OCR sometimes misreads day by a few digits, and port tickets
+  // can be pre-dated. 7 days each way is safe enough to catch OCR drift.
   const ticketDate = parseDate(ocr.DATA)
   if (ticketDate) {
-    const now = new Date()
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-    const oneDayAhead = new Date(now.getTime() + 24 * 60 * 60 * 1000)
-    if (ticketDate < sevenDaysAgo || ticketDate > oneDayAhead) {
+    // Compare date-only (strip time) to avoid boundary issues at midnight vs current hour
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const ticketDay = new Date(ticketDate)
+    ticketDay.setHours(0, 0, 0, 0)
+    const sevenDaysAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)
+    const sevenDaysAhead = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000)
+    if (ticketDay < sevenDaysAgo || ticketDay > sevenDaysAhead) {
       result.ignorado = true
       result.erro_validacao = `Date out of range: ${ocr.DATA}`
       return result
