@@ -19,12 +19,33 @@ export function detectTerminal(local) {
   return 'BTP'
 }
 
-// Parse DD/MM/YYYY to Date
+// Parse DD/MM/YYYY to Date (with OCR date auto-correction)
 function parseDate(dateStr) {
   if (!dateStr) return null
   const parts = dateStr.split('/')
   if (parts.length !== 3) return null
-  const [d, m, y] = parts.map(Number)
+  let [d, m, y] = parts.map(Number)
+
+  // Fix: Gemini sometimes swaps DD and YY when year is faded/truncated
+  // e.g. 21/03/2026 → OCR reads 26/03/2021 (day=26, year=2021)
+  // Heuristic: if year < 2025 and swapping DD↔(year%100) gives a valid recent date, swap them
+  if (y < 2025) {
+    const shortYear = y % 100   // e.g. 2021 → 21
+    const candidateDay = shortYear
+    const candidateYear = 2000 + d  // e.g. d=26 → 2026
+    if (candidateYear >= 2025 && candidateYear <= 2027 && candidateDay >= 1 && candidateDay <= 31) {
+      console.warn(`[parseDate] Auto-corrected date: ${dateStr} → ${candidateDay}/${m}/${candidateYear} (DD↔YY swap)`)
+      d = candidateDay
+      y = candidateYear
+    }
+  }
+
+  // Safety net: if year is still unreasonable, force 2026
+  if (y < 2025 || y > 2027) {
+    console.warn(`[parseDate] Unreasonable year ${y} in "${dateStr}", forcing 2026`)
+    y = 2026
+  }
+
   return new Date(y, m - 1, d)
 }
 
@@ -116,13 +137,15 @@ export function applyBusinessRules(ocr, chatJid) {
   return result
 }
 
-// Convert DD/MM/YYYY to YYYY-MM-DD (Postgres date format)
+// Convert DD/MM/YYYY to YYYY-MM-DD (Postgres date format) — uses parseDate for auto-correction
 function convertDateToISO(dateStr) {
   if (!dateStr) return null
-  const parts = dateStr.split('/')
-  if (parts.length !== 3) return dateStr
-  const [d, m, y] = parts
-  return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
+  const parsed = parseDate(dateStr)
+  if (!parsed || isNaN(parsed.getTime())) return null
+  const y = parsed.getFullYear()
+  const m = String(parsed.getMonth() + 1).padStart(2, '0')
+  const d = String(parsed.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
 }
 
 // Process abastecimento OCR result
