@@ -186,6 +186,24 @@ export async function reprocessRawRecord(record) {
     return { status: 'IGNORADO', reason: frete.erro_validacao }
   }
 
+  // Dedup: check if frete already exists for this raw record
+  if (record.frete_id) {
+    console.log(`[Reprocess] Skipping INSERT, frete already exists: ${record.frete_id}`)
+    await db.patch('tp_mensagens_raw', rawFilter, { status: 'OK', ocr_resultado: ocr })
+    return { status: 'OK', frete_id: record.frete_id, skipped_insert: true }
+  }
+
+  // Dedup: check by container + data_frete
+  const existing = await db.query('tp_fretes',
+    `select=id&container=eq.${encodeURIComponent(frete.container)}&data_frete=eq.${frete.data_frete}&limit=1`,
+    'return=representation'
+  ).catch(() => [])
+  if (existing.length > 0) {
+    console.log(`[Reprocess] Skipping INSERT, duplicate container ${frete.container} on ${frete.data_frete}: ${existing[0].id}`)
+    await db.patch('tp_mensagens_raw', rawFilter, { status: 'OK', frete_id: existing[0].id, ocr_resultado: ocr })
+    return { status: 'OK', frete_id: existing[0].id, skipped_insert: true }
+  }
+
   // INSERT frete
   const freteRecord = await db.insert('tp_fretes', {
     container: frete.container,

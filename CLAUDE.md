@@ -249,6 +249,45 @@ O **km no odometro** em cada abastecimento e essencial para calcular consumo (km
 | CHRISTIAN | FEI3D86 | `120363423313474684@g.us` |
 | VALTER | GFR6A86 | `120363027158529382@g.us` |
 
+## Troubleshooting: Evolution API (instancia marcofassa)
+
+### Bug conhecido: socket Baileys zumbi
+
+A instancia `marcofassa` na Evolution API (Easypanel pessoal) roda com **115K+ msgs e 701 grupos**. O socket do Baileys eventualmente congela: a instancia reporta `connectionStatus: open` mas qualquer envio retorna `Error: Connection Closed`. Webhooks param de disparar silenciosamente.
+
+**Sintomas**:
+- Fotos enviadas nos grupos dos motoristas nao chegam no Supabase (`tp_mensagens_raw`)
+- `POST /message/sendText/marcofassa` retorna `Connection Closed`
+- `connectionState` reporta `open` (falso positivo)
+- Logout (`DELETE /instance/logout`) tambem falha com `Connection Closed`
+- `POST /instance/restart` nao resolve (objeto corrompido em memoria)
+
+**Fix**: restart do container Docker da Evolution no Easypanel.
+- Painel: `https://u0otng.easypanel.host` > projeto `evolution` > servico `evolution-api` > Redeploy
+- NAO precisa restartar DB (postgres) nem Redis
+- As outras instancias (isis, isis-pgto-frete, dias-odonto) reconectam sozinhas em ~20s
+- `groupsIgnore: true` NAO e opcao: bloqueia MESSAGES_UPSERT de grupos (3 camadas no codigo Baileys)
+
+**Recuperacao de fotos perdidas**:
+1. O daemon WhatsApp pessoal (porta 3847) salva todas as imagens localmente em `whatsapp-mcp-pessoal/media/`
+2. Consultar `GET /messages/{group_jid}?limit=30` no daemon pra listar imagens com msg_id e timestamp
+3. Cruzar msg_ids com `tp_mensagens_raw` no Supabase pra identificar as faltantes
+4. Converter imagem pra base64 e injetar via `POST /api/tp/webhook` simulando payload Evolution:
+   ```json
+   {"event":"messages.upsert","instance":"marcofassa","data":{"key":{"remoteJid":"GROUP_JID","fromMe":false,"id":"MSG_ID"},"messageTimestamp":UNIX_TS,"message":{"imageMessage":{"mimetype":"image/jpeg"},"base64":"..."}}}
+   ```
+5. Enviar confirmacoes manualmente via `POST /api/tp/confirma-frete` ou daemon local (porta 3847)
+
+**Prevencao**: o cron `tp-healthcheck.js` roda a cada 30min e deveria detectar isso. Validar que o healthcheck testa envio real (nao apenas connectionState).
+
+### PINs de acesso ao app
+
+| Usuario | PIN | Role |
+|---------|-----|------|
+| TPaulino (Thiago) | 1234 | admin |
+| Manutencao | 9999 | supervisor |
+| Mae Thiago | ? | admin |
+
 ## URLs
 
 - **Producao**: `https://tpaulino-gestao-fretes-production.up.railway.app/`
