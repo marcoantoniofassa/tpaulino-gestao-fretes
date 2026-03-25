@@ -216,6 +216,24 @@ export async function toggleParcelaStatus(parcela: GastoParcela) {
   if (parentError) console.error('Error updating parent gasto status:', parentError)
 }
 
+export async function updateGasto(
+  id: string,
+  fields: {
+    litros?: number | null
+    preco_litro?: number | null
+    km_odometro?: number | null
+    valor?: number
+    descricao?: string | null
+  }
+): Promise<boolean> {
+  const { error } = await supabase.from('tp_gastos').update(fields).eq('id', id)
+  if (error) {
+    console.error('Error updating gasto:', error)
+    return false
+  }
+  return true
+}
+
 export async function deleteGasto(id: string) {
   const { error } = await supabase.from('tp_gastos').delete().eq('id', id)
   if (error) console.error('Error deleting gasto:', error)

@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { Trash2, Image, Fuel, FileText, Copy, Check, CheckCircle, Undo2, ChevronDown, ChevronUp } from 'lucide-react'
+import { Trash2, Image, Fuel, FileText, Copy, Check, CheckCircle, Undo2, ChevronDown, ChevronUp, Pencil, X, Save, Loader2 } from 'lucide-react'
 import { Badge } from '@/components/ui/Badge'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { toggleGastoStatus, toggleParcelaStatus, deleteGasto } from '@/hooks/useGastos'
+import { toggleGastoStatus, toggleParcelaStatus, deleteGasto, updateGasto } from '@/hooks/useGastos'
 import type { GastoWithRelations, GastoParcela } from '@/types/database'
 
 interface GastoCardProps {
@@ -29,10 +29,47 @@ function isPdf(url: string) {
 export function GastoCard({ gasto }: GastoCardProps) {
   const [copied, setCopied] = useState(false)
   const [expanded, setExpanded] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [editLitros, setEditLitros] = useState('')
+  const [editPrecoLitro, setEditPrecoLitro] = useState('')
+  const [editKm, setEditKm] = useState('')
 
   const parcelas = gasto.tp_gasto_parcelas ?? []
   const temParcelas = parcelas.length > 0
   const parcelasPagas = parcelas.filter(p => p.status === 'PAGO').length
+
+  function startEditing(e: React.MouseEvent) {
+    e.stopPropagation()
+    setEditLitros(gasto.litros?.toString() || '')
+    setEditPrecoLitro(gasto.preco_litro?.toString() || '')
+    setEditKm(gasto.km_odometro?.toString() || '')
+    setEditing(true)
+  }
+
+  function cancelEditing(e: React.MouseEvent) {
+    e.stopPropagation()
+    setEditing(false)
+  }
+
+  async function handleSaveEdit(e: React.MouseEvent) {
+    e.stopPropagation()
+    const litros = parseFloat(editLitros) || null
+    const preco_litro = parseFloat(editPrecoLitro) || null
+    const km_odometro = editKm ? parseInt(editKm) : null
+    const valor = litros && preco_litro ? litros * preco_litro : gasto.valor
+
+    setSaving(true)
+    const ok = await updateGasto(gasto.id, { litros, preco_litro, km_odometro, valor })
+    setSaving(false)
+    if (ok) setEditing(false)
+  }
+
+  const editValorCalc = (() => {
+    const l = parseFloat(editLitros)
+    const p = parseFloat(editPrecoLitro)
+    return l > 0 && p > 0 ? l * p : null
+  })()
 
   async function handleToggleStatus(e: React.MouseEvent) {
     e.stopPropagation()
@@ -100,7 +137,7 @@ export function GastoCard({ gasto }: GastoCardProps) {
             <span className="text-slate-300">|</span>
             <span>{temParcelas ? `${parcelas.length}x` : gasto.forma_pagamento}</span>
           </div>
-          {isAbastecimento && (gasto.litros || gasto.km_odometro) && (
+          {isAbastecimento && !editing && (gasto.litros || gasto.km_odometro) && (
             <div className="flex items-center gap-2 text-xs text-green-600 mb-1">
               <Fuel size={12} />
               {gasto.litros && <span>{gasto.litros}L</span>}
@@ -144,8 +181,16 @@ export function GastoCard({ gasto }: GastoCardProps) {
               </a>
             )}
             <span className="text-lg font-bold text-red-600">
-              {formatCurrency(gasto.valor)}
+              {editing && editValorCalc ? formatCurrency(editValorCalc) : formatCurrency(gasto.valor)}
             </span>
+            {isAbastecimento && !editing && (
+              <button
+                onClick={startEditing}
+                className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-300 hover:text-blue-500 transition-colors"
+              >
+                <Pencil size={16} />
+              </button>
+            )}
             <button
               onClick={handleDelete}
               className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors"
@@ -188,6 +233,70 @@ export function GastoCard({ gasto }: GastoCardProps) {
           )}
         </div>
       </div>
+
+      {/* Inline edit form for abastecimento */}
+      {editing && (
+        <div className="mt-3 pt-3 border-t border-blue-100 space-y-2 animate-slide-down" onClick={e => e.stopPropagation()}>
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="text-[10px] font-medium text-slate-400 block">Litros</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={editLitros}
+                onChange={e => setEditLitros(e.target.value)}
+                className="w-full px-2 py-1.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-medium text-slate-400 block">R$/Litro</label>
+              <input
+                type="number"
+                step="0.001"
+                min="0"
+                value={editPrecoLitro}
+                onChange={e => setEditPrecoLitro(e.target.value)}
+                className="w-full px-2 py-1.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-medium text-slate-400 block">Km</label>
+              <input
+                type="number"
+                step="1"
+                min="0"
+                value={editKm}
+                onChange={e => setEditKm(e.target.value)}
+                className="w-full px-2 py-1.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+          {editValorCalc && (
+            <div className="text-xs text-slate-500 bg-blue-50 rounded-lg px-2 py-1">
+              Valor calculado: <span className="font-bold text-blue-700">{formatCurrency(editValorCalc)}</span>
+            </div>
+          )}
+          <div className="flex gap-2">
+            <button
+              onClick={handleSaveEdit}
+              disabled={saving}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+              Salvar
+            </button>
+            <button
+              onClick={cancelEditing}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
+            >
+              <X size={13} />
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Expanded parcelas list */}
       {temParcelas && expanded && (
