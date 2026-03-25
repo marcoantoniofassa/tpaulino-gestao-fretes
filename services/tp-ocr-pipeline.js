@@ -115,18 +115,18 @@ export async function processWebhookMessage(body) {
     // Step 10: Push notification (best-effort)
     sendPush(frete.motorista_nome, frete.terminal_nome, frete.container, frete.valor_liquido)
 
-    // Step 11: WhatsApp confirmation (tracked)
+    // Step 11: WhatsApp confirmation (tracked, retries inline, alerts on failure)
     try {
       const confirmResult = await confirmaFrete(frete.container, msg.chat_jid)
       if (confirmResult.success) {
         await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_enviada: true })
       } else {
         await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_erro: confirmResult.error || 'unknown' })
-        console.warn(`[OCR] Confirma failed for ${frete.container}: ${confirmResult.error}`)
+        alertError('Confirmacao falhou', `Container: ${frete.container}\nMotorista: ${frete.motorista_nome}\nErro: ${confirmResult.error}\nCron vai retentar em ate 10min.`)
       }
     } catch (confirmErr) {
       await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_erro: confirmErr.message?.substring(0, 500) }).catch(() => {})
-      console.warn(`[OCR] Confirma WhatsApp failed: ${confirmErr.message}`)
+      alertError('Confirmacao falhou', `Container: ${frete.container}\nMotorista: ${frete.motorista_nome}\nErro: ${confirmErr.message}\nCron vai retentar em ate 10min.`)
     }
 
     console.log(`[OCR] Done: ${frete.container} ${frete.motorista_nome} R$${frete.valor_liquido}`)

@@ -49,9 +49,31 @@ function parseDate(dateStr) {
   return new Date(y, m - 1, d)
 }
 
+// Business day cutoff: freights before 6am BRT count as previous day
+// Drivers work late shifts and enter ports at 1am, 3am — those are "yesterday's" freights
+const CUTOFF_HOUR_BRT = 6
+
+function applyBusinessDayCutoff(dateStr, msgTimestamp) {
+  if (!dateStr) return dateStr
+  // Use message timestamp to determine if this was a madrugada freight
+  const msgDate = msgTimestamp ? new Date(msgTimestamp) : new Date()
+  // Convert to BRT (UTC-3)
+  const brtHour = (msgDate.getUTCHours() - 3 + 24) % 24
+  if (brtHour < CUTOFF_HOUR_BRT) {
+    // Before 6am BRT: subtract one day from data_frete
+    const d = new Date(dateStr + 'T12:00:00Z') // noon to avoid timezone edge
+    d.setDate(d.getDate() - 1)
+    const adjusted = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    console.log(`[BusinessDay] Cutoff: ${dateStr} → ${adjusted} (msg sent at ${brtHour}h BRT, before ${CUTOFF_HOUR_BRT}h)`)
+    return adjusted
+  }
+  return dateStr
+}
+
 // Apply business rules to OCR result
 // msgTimestamp: ISO string or Date of when the WhatsApp photo was sent (fallback for bad OCR dates)
 export function applyBusinessRules(ocr, chatJid, msgTimestamp) {
+  const rawDate = convertDateToISO(ocr.DATA) || new Date().toISOString().split('T')[0]
   const result = {
     ignorado: false,
     erro_validacao: null,
@@ -63,7 +85,7 @@ export function applyBusinessRules(ocr, chatJid, msgTimestamp) {
     terminal_key: null,
     terminal_id: null,
     terminal_nome: null,
-    data_frete: convertDateToISO(ocr.DATA) || new Date().toISOString().split('T')[0],
+    data_frete: applyBusinessDayCutoff(rawDate, msgTimestamp),
     sequencia: ocr.SEQUENCIA || 0,
     valor_bruto: 0,
     pedagio: 0,

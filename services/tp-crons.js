@@ -3,6 +3,7 @@ import cron from 'node-cron'
 import { runHealthcheck } from './tp-healthcheck.js'
 import { runSafetyNet } from './tp-safety-net.js'
 import { runAbastecimentoScan } from './tp-abastecimento.js'
+import { retryFailedConfirmacoes } from './tp-confirma.js'
 
 export function startCrons() {
   // v2-07: Healthcheck every 30 minutes
@@ -22,6 +23,12 @@ export function startCrons() {
     runSafetyNet().catch(err => console.error('[Cron] SafetyNet error:', err.message))
   }, { timezone: 'America/Sao_Paulo' })
   console.log('[Cron] SafetyNet scheduled: daily 06:00 BRT')
+
+  // Retry failed WhatsApp confirmations every 10 minutes
+  cron.schedule('*/10 * * * *', () => {
+    retryFailedConfirmacoes().catch(err => console.error('[Cron] RetryConfirma error:', err.message))
+  }, { timezone: 'America/Sao_Paulo' })
+  console.log('[Cron] RetryConfirmacoes scheduled: every 10min')
 
   // Run initial healthcheck on startup (delayed 10s)
   setTimeout(() => {
