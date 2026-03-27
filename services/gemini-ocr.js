@@ -20,22 +20,37 @@ Return ONLY valid JSON, no markdown. Example:
 
 If not a valid freight ticket: {"TIPO_DOCUMENTO":"OUTRO"}`
 
-const ABASTECIMENTO_PROMPT = `You are an OCR specialist analyzing fuel receipt images from Brazilian logistics.
+const ABASTECIMENTO_PROMPT = `You are an OCR specialist. You ONLY extract data from the standardized "S-10 Controle de Abastecimento" paper ticket used at Brazilian fuel stations.
 
-Analyze this image and extract:
-1. TIPO_DOCUMENTO: "ABASTECIMENTO" (fuel receipt) or "OUTRO"
-2. LITROS: Liters fueled (decimal number)
-3. CONTROLE_POSTO: Gas station control number
-4. BOMBA: Pump number
-5. LEITURA: Meter reading
-6. PLACA: Vehicle license plate
-7. DATA: Date in DD/MM/YYYY format
-8. KM_ODOMETRO: Odometer reading in km (integer). CRITICAL field.
+## What is the S-10 ticket?
+A printed/handwritten paper form with header "S - 10" and title "Controle de Abastecimento Nº XXXXX".
+It has these fields in order:
+- TRANSPORTADORA (transport company number)
+- NOME (driver name, handwritten)
+- PLACA (vehicle plate, handwritten, Brazilian format like ABC1D23 or ABC1234)
+- KM (odometer, often left blank)
+- Nº BOMBA (pump number, 01 or 02)
+- LEITURA (two meter readings: start/end, separated by / or on same line)
+- LTS DIESEL (liters, handwritten number — this is the CRITICAL field)
+- V. UNIT (unit price, often blank)
+- TOTAL R$ (total cost, often blank)
+- DATA (date, handwritten DD/MM/YY or DD/MM/YYYY — year is ALWAYS 2026)
+- ASSINATURA (signature)
 
-Return ONLY valid JSON, no markdown. Example:
-{"TIPO_DOCUMENTO":"ABASTECIMENTO","LITROS":120.5,"CONTROLE_POSTO":"1234","BOMBA":"3","LEITURA":"5678","PLACA":"GFR6A86","DATA":"12/03/2026","KM_ODOMETRO":85430}
+## CRITICAL RULES
+- ONLY classify as "ABASTECIMENTO" if the image shows this S-10 paper ticket.
+- If the image shows a pump digital display, a generic receipt, a fuel nozzle, or anything else: return {"TIPO_DOCUMENTO":"OUTRO"}
+- The pump display (digital numbers on the machine) is NOT the ticket. Ignore it.
+- LTS DIESEL: Read the handwritten number carefully. Typical range is 100-800 liters (it's a truck). If you read a number outside 30-999, double-check.
+- CONTROLE: The number after "Controle de Abastecimento Nº" (printed, usually 5 digits like 34444).
+- DATA: Handwritten date. Year is ALWAYS 2026 regardless of what appears written. If only 2 digits for year (e.g. "16" or "26"), use 2026.
+- PLACA: Handwritten plate. Common plates in this fleet: FJR7B87, ECS0E09, FEI3D86, GFR6A86. Use these as reference if the handwriting is ambiguous.
 
-If not a fuel receipt: {"TIPO_DOCUMENTO":"OUTRO"}`
+Extract and return ONLY valid JSON:
+{"TIPO_DOCUMENTO":"ABASTECIMENTO","LITROS":410,"CONTROLE_POSTO":"34444","BOMBA":"02","LEITURA":"20845502/20845932","PLACA":"FJR7B87","DATA":"26/03/2026","KM_ODOMETRO":null}
+
+If KM is blank or illegible, set KM_ODOMETRO to null.
+If not an S-10 ticket: {"TIPO_DOCUMENTO":"OUTRO"}`
 
 const MAX_RETRIES = 3
 const RETRY_CODES = new Set([429, 500, 502, 503, 529])

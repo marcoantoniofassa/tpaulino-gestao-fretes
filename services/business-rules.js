@@ -184,18 +184,20 @@ function convertDateToISO(dateStr) {
   return `${y}-${m}-${d}`
 }
 
-// Process abastecimento OCR result
+// Process abastecimento OCR result (S-10 ticket only)
 export function processAbastecimento(ocr, chatJid) {
   if (ocr.TIPO_DOCUMENTO !== 'ABASTECIMENTO') return null
 
   const groupCfg = GROUP_MOTORISTA[chatJid]
   if (!groupCfg) return null
 
-  const placa = groupCfg.placa || ocr.PLACA
+  // Resolve placa: OCR may read it, but normalize against known fleet plates
+  const ocrPlaca = (ocr.PLACA || '').replace(/[\s-]/g, '').toUpperCase()
+  const placa = groupCfg.placa || resolvePlaca(ocrPlaca)
   const veiculo_id = placa ? VEICULOS[placa] : null
   const motorista_id = MOTORISTAS[groupCfg.motorista]
   const litros = parseFloat(ocr.LITROS) || 0
-  if (litros <= 0) return null
+  if (litros < 30 || litros > 999) return null
 
   const valor = Math.round(litros * PRECO_LITRO_DIESEL * 100) / 100
   const descParts = []
@@ -203,6 +205,7 @@ export function processAbastecimento(ocr, chatJid) {
   descParts.push('PRECO ESTIMADO')
   if (ocr.CONTROLE_POSTO) descParts.push(`Ctrl: ${ocr.CONTROLE_POSTO}`)
   if (ocr.BOMBA) descParts.push(`Bomba: ${ocr.BOMBA}`)
+  if (ocr.LEITURA) descParts.push(`Leitura: ${ocr.LEITURA}`)
 
   return {
     tipo: 'ABASTECIMENTO',
@@ -216,4 +219,24 @@ export function processAbastecimento(ocr, chatJid) {
     descricao: descParts.join(' | '),
     data: convertDateToISO(ocr.DATA) || new Date().toISOString().split('T')[0],
   }
+}
+
+// Try to match OCR plate to a known fleet plate (handles OCR misreads)
+function resolvePlaca(raw) {
+  if (!raw) return null
+  if (VEICULOS[raw]) return raw
+  // Try without spaces/dashes (already cleaned above)
+  // Fuzzy: check if OCR plate differs by 1 char from any known plate
+  const known = Object.keys(VEICULOS).filter(k => k.length >= 7)
+  for (const plate of known) {
+    let diff = 0
+    const a = raw.replace(/[^A-Z0-9]/g, '')
+    const b = plate.replace(/[^A-Z0-9]/g, '')
+    if (a.length !== b.length) continue
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) diff++
+    }
+    if (diff <= 1) return plate
+  }
+  return raw
 }
