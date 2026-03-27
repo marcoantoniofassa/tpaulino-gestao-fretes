@@ -67,7 +67,7 @@ export async function runAbastecimentoScan() {
         if (record._grouped) {
           const rawFilter = `msg_id=eq.${record.msg_id}&chat_jid=eq.${encodeURIComponent(record.chat_jid)}`
           await db.patch('tp_mensagens_raw', rawFilter, {
-            status: 'IGNORADO_AGRUPADO',
+            status: 'DUPLICADO',
             ocr_resultado: { nota: 'Agrupado com outra foto do mesmo abastecimento' },
           })
           console.log(`[Abastecimento] Grouped: ${record.msg_id} (same chat, <5min window)`)
