@@ -3,7 +3,7 @@
 ## O que e
 
 App mobile-first para gestao de fretes portuarios da transportadora T Paulino (Porto de Santos).
-OCR via Gemini no N8N le fotos de tickets enviados por WhatsApp, grava no Supabase e notifica via push.
+OCR via Gemini (em codigo Node.js, NAO usa n8n) le fotos de tickets enviados por WhatsApp, grava no Supabase e notifica via push.
 
 ## Stack
 
@@ -15,7 +15,7 @@ OCR via Gemini no N8N le fotos de tickets enviados por WhatsApp, grava no Supaba
 | Server | Express 5 (serve SPA + Push API) |
 | Auth | PIN 4 digitos + role (admin/supervisor) |
 | Push | Web Push API + VAPID + Service Worker |
-| OCR | N8N + Gemini 2.0 Flash (v2: ingestao desacoplada) |
+| OCR | Gemini 2.0 Flash (em codigo, migrado do n8n) |
 | Deploy | Railway auto-deploy via git push |
 
 ## Estrutura
@@ -146,6 +146,7 @@ services/
 ├── tp-healthcheck.js      # v2-07: Evolution healthcheck (30min cron)
 ├── tp-safety-net.js       # v2-03: reprocess + cleanup (daily 06:00 BRT)
 ├── tp-abastecimento.js    # v2-08: auto abastecimento OCR (15min cron)
+├── tp-zombie-monitor.js   # Zombie socket detection + restart + recovery (human-in-the-loop)
 └── tp-crons.js            # Initialize all scheduled jobs
 ```
 
@@ -154,10 +155,15 @@ services/
 - `POST /api/tp/confirma-frete` : WhatsApp confirmation (v2-09)
 - `POST /webhook/t-paulino-ocr-v2` : Legacy path (backwards compat)
 - `POST /webhook/tp-confirma-frete` : Legacy path (backwards compat)
+- `GET  /api/tp/zombie-status` : Estado do monitor zombie (debug)
+- `GET/POST /api/tp/zombie-restart` : Aprovar restart container (human-in-the-loop)
+- `GET/POST /api/tp/zombie-recover` : Aprovar recuperacao de msgs perdidas
 
 ### Crons (node-cron, timezone America/Sao_Paulo)
+- `*/5 * * * *` : Zombie Monitor (deteccao + alerta Discord)
 - `*/30 * * * *` : Healthcheck Evolution (v2-07)
 - `*/15 * * * *` : Abastecimento scan (v2-08)
+- `*/10 * * * *` : Retry confirmacoes WhatsApp
 - `0 6 * * *` : Safety Net + Cleanup (v2-03)
 
 ### Regras de Negocio
@@ -193,6 +199,11 @@ services/
 | `VAPID_PUBLIC_KEY` | Chave publica push (tem default no codigo) |
 | `VAPID_PRIVATE_KEY` | Chave privada push (tem default no codigo) |
 | `PUSH_API_KEY` | API key pro /api/push/send (default: `tp-push-2026`) |
+| `DISCORD_WEBHOOK_URL` | Webhook Discord alertas T-Paulino |
+| `EASYPANEL_HOST` | Easypanel API (default: `https://u0otng.easypanel.host`) |
+| `EASYPANEL_EMAIL` | Login Easypanel (para restart container) |
+| `EASYPANEL_PASSWORD` | Senha Easypanel |
+| `APP_BASE_URL` | URL base do app (para links Discord) |
 
 ## Env Vars (Frontend — .env.production)
 
@@ -278,7 +289,14 @@ A instancia `marcofassa` na Evolution API (Easypanel pessoal) roda com **115K+ m
    ```
 5. Enviar confirmacoes manualmente via `POST /api/tp/confirma-frete` ou daemon local (porta 3847)
 
-**Prevencao**: o cron `tp-healthcheck.js` roda a cada 30min e deveria detectar isso. Validar que o healthcheck testa envio real (nao apenas connectionState).
+**Prevencao (implementado 28/03/2026)**: `tp-zombie-monitor.js` roda a cada 5min.
+- Detecta via gap de mensagens > 1h + sendText probe (2 falhas consecutivas = zombie confirmado)
+- NAO usar `disconnectionReasonCode` (persiste no DB da Evolution apos reconexao, falso positivo)
+- NAO usar `DELETE /instance/logout` pra testar (destroi sessao, exige re-scan QR)
+- Alerta via Discord com link clicavel (human-in-the-loop)
+- Marco aprova restart (Easypanel tRPC deploy) e recovery (findMessages + replay)
+- Tokens de acao expiram em 1h, uso unico
+- Cooldown: 20min entre restarts, max 3 em 2h
 
 ### PINs de acesso ao app
 
