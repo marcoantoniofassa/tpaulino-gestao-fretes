@@ -46,6 +46,66 @@ export async function alertError(title, details) {
   }
 }
 
+// Send Discord embed with clickable action link (human-in-the-loop)
+export async function alertWithAction(title, details, actionLabel, actionUrl, color = 0xFFAA00) {
+  const timestamp = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+  console.log(`[ALERT] ${title}: ${details} | Action: ${actionLabel}`)
+
+  if (!DISCORD_WEBHOOK) {
+    console.warn('[ALERT] Discord webhook not configured, action link not sent')
+    return
+  }
+
+  try {
+    await fetch(DISCORD_WEBHOOK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        embeds: [{
+          title: `TP Frete: ${title}`,
+          description: details.substring(0, 2000),
+          color,
+          fields: [{
+            name: 'Acao',
+            value: `**[${actionLabel}](${actionUrl})**`,
+            inline: false,
+          }],
+          timestamp: new Date().toISOString(),
+          footer: { text: 'tpaulino-gestao-fretes | zombie-monitor' },
+        }],
+      }),
+    })
+  } catch (err) {
+    console.warn('[ALERT] Discord action alert failed:', err.message)
+  }
+}
+
+// Send Discord success notification (no action needed)
+export async function alertSuccess(title, details) {
+  const timestamp = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+  console.log(`[ALERT] ${title}: ${details}`)
+
+  if (!DISCORD_WEBHOOK) return
+
+  try {
+    await fetch(DISCORD_WEBHOOK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        embeds: [{
+          title: `TP Frete: ${title}`,
+          description: details.substring(0, 2000),
+          color: 0x44FF44,
+          timestamp: new Date().toISOString(),
+          footer: { text: 'tpaulino-gestao-fretes | zombie-monitor' },
+        }],
+      }),
+    })
+  } catch (err) {
+    console.warn('[ALERT] Discord success alert failed:', err.message)
+  }
+}
+
 export async function alertWarning(title, details) {
   console.warn(`[ALERT] ${title}: ${details}`)
 

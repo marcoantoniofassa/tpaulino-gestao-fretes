@@ -4,6 +4,7 @@ import { runHealthcheck } from './tp-healthcheck.js'
 import { runSafetyNet } from './tp-safety-net.js'
 import { runAbastecimentoScan } from './tp-abastecimento.js'
 import { retryFailedConfirmacoes } from './tp-confirma.js'
+import { runZombieMonitor } from './tp-zombie-monitor.js'
 
 export function startCrons() {
   // v2-07: Healthcheck every 30 minutes
@@ -29,6 +30,12 @@ export function startCrons() {
     retryFailedConfirmacoes().catch(err => console.error('[Cron] RetryConfirma error:', err.message))
   }, { timezone: 'America/Sao_Paulo' })
   console.log('[Cron] RetryConfirmacoes scheduled: every 10min')
+
+  // Zombie Monitor every 5 minutes
+  cron.schedule('*/5 * * * *', () => {
+    runZombieMonitor().catch(err => console.error('[Cron] ZombieMonitor error:', err.message))
+  }, { timezone: 'America/Sao_Paulo' })
+  console.log('[Cron] ZombieMonitor scheduled: every 5min')
 
   // Run initial healthcheck on startup (delayed 10s)
   setTimeout(() => {

@@ -9,6 +9,7 @@ import { mountConfirmaRoute } from './services/tp-confirma.js'
 import { startCrons } from './services/tp-crons.js'
 import { runSafetyNet } from './services/tp-safety-net.js'
 import { reprocessRawRecord } from './services/tp-ocr-pipeline.js'
+import { getZombieState, executeRestart, executeRecovery } from './services/tp-zombie-monitor.js'
 import * as db from './services/supabase.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -247,6 +248,57 @@ app.post('/api/tp/reprocess/:id', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
+})
+
+// --- Zombie Monitor endpoints (human-in-the-loop) ---
+
+// Debug: current zombie monitor state
+app.get('/api/tp/zombie-status', (req, res) => {
+  const apiKey = req.headers['x-api-key'] || req.query.key
+  if (apiKey !== PUSH_API_KEY) return res.status(401).json({ error: 'Unauthorized' })
+  res.json(getZombieState())
+})
+
+// Approve restart (Marco clicks Discord link)
+app.post('/api/tp/zombie-restart', async (req, res) => {
+  const apiKey = req.headers['x-api-key'] || req.query.key
+  if (apiKey !== PUSH_API_KEY) return res.status(401).json({ error: 'Unauthorized' })
+  const token = req.query.token
+  if (!token) return res.status(400).json({ error: 'Token required' })
+  const result = await executeRestart(token)
+  res.status(result.ok ? 200 : 400).json(result)
+})
+
+// Also accept GET for easy Discord link clicks
+app.get('/api/tp/zombie-restart', async (req, res) => {
+  const apiKey = req.query.key
+  if (apiKey !== PUSH_API_KEY) return res.status(401).json({ error: 'Unauthorized' })
+  const token = req.query.token
+  if (!token) return res.status(400).json({ error: 'Token required' })
+  const result = await executeRestart(token)
+  const status = result.ok ? 'Restart iniciado' : `Erro: ${result.error}`
+  res.send(`<html><body><h2>TP Frete: Zombie Restart</h2><p>${status}</p><p>${JSON.stringify(result, null, 2)}</p><p>Volte ao Discord para acompanhar.</p></body></html>`)
+})
+
+// Approve recovery (Marco clicks Discord link)
+app.post('/api/tp/zombie-recover', async (req, res) => {
+  const apiKey = req.headers['x-api-key'] || req.query.key
+  if (apiKey !== PUSH_API_KEY) return res.status(401).json({ error: 'Unauthorized' })
+  const token = req.query.token
+  if (!token) return res.status(400).json({ error: 'Token required' })
+  const result = await executeRecovery(token)
+  res.status(result.ok ? 200 : 400).json(result)
+})
+
+// Also accept GET for easy Discord link clicks
+app.get('/api/tp/zombie-recover', async (req, res) => {
+  const apiKey = req.query.key
+  if (apiKey !== PUSH_API_KEY) return res.status(401).json({ error: 'Unauthorized' })
+  const token = req.query.token
+  if (!token) return res.status(400).json({ error: 'Token required' })
+  const result = await executeRecovery(token)
+  const status = result.ok ? `Recuperadas: ${result.recovered}, Dedup: ${result.skipped}, Falhas: ${result.failed}` : `Erro: ${result.error}`
+  res.send(`<html><body><h2>TP Frete: Zombie Recovery</h2><p>${status}</p><p>Volte ao Discord para detalhes.</p></body></html>`)
 })
 
 // SPA fallback (Express 5 syntax)

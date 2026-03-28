@@ -65,6 +65,16 @@ export const PEDAGIO = 54.90
 export const COMISSAO_PERCENTUAL = 0.25
 export const PRECO_LITRO_DIESEL = 6.25
 
+// Easypanel (for Evolution container restart)
+export const EASYPANEL_HOST = process.env.EASYPANEL_HOST || 'https://u0otng.easypanel.host'
+export const EASYPANEL_EMAIL = process.env.EASYPANEL_EMAIL || ''
+export const EASYPANEL_PASSWORD = process.env.EASYPANEL_PASSWORD || ''
+export const EASYPANEL_PROJECT = process.env.EASYPANEL_PROJECT || 'evolution'
+export const EASYPANEL_SERVICE = process.env.EASYPANEL_SERVICE || 'evolution-api'
+
+// App base URL (for action links in Discord)
+export const APP_BASE_URL = process.env.APP_BASE_URL || 'https://tpaulino-gestao-fretes-production.up.railway.app'
+
 // Supabase REST headers
 export function supaHeaders(prefer = 'return=minimal') {
   return {
