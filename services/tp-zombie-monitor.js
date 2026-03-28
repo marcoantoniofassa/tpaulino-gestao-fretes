@@ -95,9 +95,10 @@ export async function runZombieMonitor() {
   if (!isBusinessHours()) return
 
   try {
-    // Step 1: Check fetchInstances for disconnectionReasonCode
+    // Step 1: Check connectionState (catches clean disconnects)
     let zombieConfirmed = false
     let zombieReason = ''
+    let connStatus = 'unknown'
 
     try {
       const instances = await fetchInstances()
@@ -106,58 +107,69 @@ export async function runZombieMonitor() {
       )
 
       if (ours) {
-        const dcCode = ours.disconnectionReasonCode || ours.instance?.disconnectionReasonCode
-        const connStatus = ours.connectionStatus || ours.instance?.state
-
-        if (dcCode != null && connStatus === 'open') {
-          zombieConfirmed = true
-          zombieReason = `disconnectionReasonCode=${dcCode} mas connectionStatus=open`
-        }
+        connStatus = ours.connectionStatus || ours.instance?.state || 'unknown'
+        // NOTE: disconnectionReasonCode persists in Evolution DB even after reconnection.
+        // It CANNOT be used for zombie detection (false positives). Only use probe + gap.
       }
     } catch (err) {
       console.warn('[ZombieMonitor] fetchInstances failed:', err.message)
-      // Continue to other checks
     }
 
-    // Step 2: If not confirmed by fetchInstances, check message gap + probe
-    if (!zombieConfirmed) {
-      const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }))
-      const hour = now.getHours()
+    // If explicitly disconnected (state != open), the existing healthcheck handles it
+    if (connStatus !== 'open' && connStatus !== 'unknown') {
+      console.log(`[ZombieMonitor] State=${connStatus}, healthcheck handles this. Skipping.`)
+      return
+    }
 
-      if (hour >= 8) {
-        const lastMsg = await getLastMessageTime()
-        if (lastMsg) {
-          const gapMs = Date.now() - lastMsg.getTime()
-          const gapHours = gapMs / (1000 * 60 * 60)
+    // Step 2: Check message gap + sendText probe (the reliable zombie detection)
+    const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }))
+    const hour = now.getHours()
 
-          if (gapHours > 1) {
-            // Suspicious gap: confirm with probe
-            console.log(`[ZombieMonitor] Suspicious gap: ${gapHours.toFixed(1)}h. Running probe...`)
-            const probe = await sendTextProbe()
+    if (hour >= 8) {
+      const lastMsg = await getLastMessageTime()
+      if (lastMsg) {
+        const gapMs = Date.now() - lastMsg.getTime()
+        const gapHours = gapMs / (1000 * 60 * 60)
 
-            if (!probe.ok) {
-              state.consecutiveFailures++
-              console.warn(`[ZombieMonitor] Probe failed (${state.consecutiveFailures}x): ${probe.error || probe.body}`)
+        if (gapHours > 1) {
+          // Suspicious gap: confirm with probe
+          console.log(`[ZombieMonitor] Suspicious gap: ${gapHours.toFixed(1)}h. Running probe...`)
+          const probe = await sendTextProbe()
 
-              if (state.consecutiveFailures >= 2) {
-                zombieConfirmed = true
-                zombieReason = `Probe falhou ${state.consecutiveFailures}x consecutivas. Gap: ${gapHours.toFixed(1)}h`
-              }
-            } else {
-              // Probe OK despite gap: probably just no freight today
-              state.consecutiveFailures = 0
-              state.lastHealthyAt = Date.now()
+          if (!probe.ok) {
+            state.consecutiveFailures++
+            console.warn(`[ZombieMonitor] Probe failed (${state.consecutiveFailures}x): ${probe.error || JSON.stringify(probe.body).substring(0, 200)}`)
+
+            if (state.consecutiveFailures >= 2) {
+              zombieConfirmed = true
+              zombieReason = `Probe falhou ${state.consecutiveFailures}x consecutivas. Gap: ${gapHours.toFixed(1)}h sem mensagens.`
             }
           } else {
-            // Recent messages, all good
+            // Probe OK despite gap: probably just no freight today
             state.consecutiveFailures = 0
             state.lastHealthyAt = Date.now()
           }
+        } else {
+          // Recent messages, all good
+          state.consecutiveFailures = 0
+          state.lastHealthyAt = Date.now()
         }
       } else {
-        // Before 8am: only fetchInstances check (already done above)
+        // No messages in DB at all, can't determine gap
+        state.lastHealthyAt = Date.now()
+      }
+    } else {
+      // Before 8am: just run a quick probe to verify connection
+      const probe = await sendTextProbe()
+      if (probe.ok) {
         state.consecutiveFailures = 0
         state.lastHealthyAt = Date.now()
+      } else {
+        state.consecutiveFailures++
+        if (state.consecutiveFailures >= 3) {
+          zombieConfirmed = true
+          zombieReason = `Probe falhou ${state.consecutiveFailures}x consecutivas (pre-8h).`
+        }
       }
     }
 
