@@ -84,7 +84,18 @@ export async function processWebhookMessage(body) {
       return
     }
 
-    // Step 7: INSERT tp_fretes
+    // Step 7: Validate container before insert (empty container = ghost frete)
+    if (!frete.container || frete.container.trim() === '') {
+      console.warn(`[OCR] Rejected: empty container from ${msg.chat_jid}`)
+      await db.patch('tp_mensagens_raw', rawFilter, {
+        status: 'ERRO',
+        ocr_resultado: { ...ocr, erro: 'Container vazio, frete rejeitado' },
+      })
+      alertError('Frete REJEITADO', `Container vazio.\nMotorista: ${GROUP_MOTORISTA[msg.chat_jid]?.motorista || msg.chat_jid}\nMsg: ${msg.msg_id}`)
+      return
+    }
+
+    // INSERT tp_fretes
     const fretePayload = {
       container: frete.container,
       motorista_id: frete.motorista_id,

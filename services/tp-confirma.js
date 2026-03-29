@@ -53,13 +53,16 @@ export async function confirmaAbastecimento(litros, chatJid) {
   }
 }
 
+// Track alerted IDs to avoid spamming Discord with the same failures
+let _lastAlertedIds = ''
+
 // Cron: retry all pending confirmations (called every 10min)
 export async function retryFailedConfirmacoes() {
   const db = await import('./supabase.js')
   const { GROUP_MOTORISTA, MOTORISTAS } = await import('./config.js')
   const { alertWarning } = await import('./alerting.js')
 
-  // Find fretes with failed confirmation (last 48h to avoid infinite retries)
+  // Find fretes with failed confirmation (status OK only, skip INVALIDO etc)
   const fretes = await db.query('tp_fretes',
     'select=id,container,motorista_id,created_at,confirmacao_erro&confirmacao_enviada=eq.false&status=eq.OK&order=created_at.desc&limit=50',
     'return=representation'
@@ -74,9 +77,18 @@ export async function retryFailedConfirmacoes() {
   }
 
   let ok = 0, fail = 0
+  const failedIds = []
   for (const f of fretes) {
     const chatJid = motoristIdToJid[f.motorista_id]
-    if (!chatJid) { fail++; continue }
+    if (!chatJid) {
+      // No chat_jid mapped: mark as confirmed to stop infinite retry
+      await db.patch('tp_fretes', `id=eq.${f.id}`, {
+        confirmacao_enviada: true,
+        confirmacao_erro: 'sem_grupo_whatsapp',
+      })
+      console.warn(`[RetryConfirma] ${f.id}: no chat_jid for motorista ${f.motorista_id}, marked as confirmed`)
+      continue
+    }
 
     const result = await confirmaFrete(f.container, chatJid)
     if (result.success) {
@@ -84,14 +96,19 @@ export async function retryFailedConfirmacoes() {
       ok++
     } else {
       fail++
+      failedIds.push(f.id)
     }
   }
 
   if (ok > 0 || fail > 0) {
     console.log(`[RetryConfirma] ${ok} ok, ${fail} fail (of ${fretes.length} pending)`)
   }
-  if (fail > 0) {
-    alertWarning('Confirmacoes pendentes', `${fail} confirmacoes ainda falhando apos retry automatico.\nTotal pendentes: ${fretes.length}`)
+
+  // Dedup alert: only notify if the set of failed IDs changed
+  const currentIds = failedIds.sort().join(',')
+  if (fail > 0 && currentIds !== _lastAlertedIds) {
+    _lastAlertedIds = currentIds
+    alertWarning('Confirmacoes pendentes', `${fail} confirmacoes falhando.\nIDs: ${failedIds.map(id => id.slice(0, 8)).join(', ')}`)
   }
 }
 
