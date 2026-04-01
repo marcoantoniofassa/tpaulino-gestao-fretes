@@ -16,7 +16,8 @@ export function detectTerminal(local) {
   if (n.includes('DPW')) return 'DPW'
   if (n.includes('SANTOS BRASIL') || n.includes('SANTOS BR')) return 'SANTOS BRASIL'
   // Partial matches — OCR sometimes truncates
-  if (n.includes('BRASIL') || n.includes('SANTO')) return 'SANTOS BRASIL'
+  if (n.includes('SANTO')) return 'SANTOS BRASIL'
+  if (n.includes('BRASIL') || n.includes('TERMINAL PORTU')) return 'BTP'
   // Fallback: log warning but don't lose the freight
   console.warn(`[detectTerminal] Unknown terminal "${local}" — defaulting to BTP`)
   return 'BTP'
