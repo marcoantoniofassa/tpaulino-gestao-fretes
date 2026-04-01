@@ -59,6 +59,7 @@ export const TERMINAIS = {
   'ECOPORTO': { id: 'd7e7dcb8-a731-45d3-93a4-bf735a3b5515', nome: 'EcoPorto', valor: 580 },
   'DPW': { id: 'ecf4b67c-e30c-4fd9-948a-06be80dd2e14', nome: 'DPW Santos', valor: 680 },
   'SANTOS BRASIL': { id: '42cb6f82-1b06-42b5-9caa-1b7a29625b07', nome: 'Santos Brasil', valor: 680 },
+  'NAO_DEFINIDO': { id: '3b63899f-ed77-4d8a-ab89-e7c7e9b80573', nome: 'Terminal Nao Definido', valor: 580 },
 }
 
 export const PEDAGIO = 54.90

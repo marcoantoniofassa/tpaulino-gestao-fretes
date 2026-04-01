@@ -6,7 +6,10 @@ import {
 
 // Detect terminal from OCR text (tolerant matching — losing a freight is worse than a wrong terminal)
 export function detectTerminal(local) {
-  if (!local) return null
+  if (!local) {
+    console.warn(`[detectTerminal] LOCAL is null/empty — marking as NAO_DEFINIDO`)
+    return 'NAO_DEFINIDO'
+  }
   const n = local.toUpperCase().trim()
   if (n.includes('BTP') || n.includes('BRASIL TERMINAL')) return 'BTP'
   if (n.includes('ECOPORTO') || n.includes('ECO PORTO')) return 'ECOPORTO'
