@@ -75,18 +75,16 @@ export async function getBase64FromMedia(messageData) {
   return data?.base64 || null
 }
 
-// Send text probe with timeout (for zombie detection)
+// Check connection state via API (no message sent)
 export async function sendTextProbe() {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 10000)
   try {
-    const res = await fetch(`${EVOLUTION_URL}/message/sendText/${EVOLUTION_INSTANCE}`, {
-      method: 'POST',
+    const res = await fetch(`${EVOLUTION_URL}/instance/connectionState/${EVOLUTION_INSTANCE}`, {
+      method: 'GET',
       headers: {
-        'Content-Type': 'application/json',
         'apikey': EVOLUTION_KEY,
       },
-      body: JSON.stringify({ number: MARCO_WHATSAPP, text: '.' }),
       signal: controller.signal,
     })
     clearTimeout(timeout)
@@ -94,7 +92,12 @@ export async function sendTextProbe() {
       const body = await res.text()
       return { ok: false, status: res.status, body }
     }
-    return { ok: true }
+    const data = await res.json()
+    const state = data?.instance?.state || data?.state || ''
+    if (state === 'open') {
+      return { ok: true }
+    }
+    return { ok: false, error: `connectionState: ${state}` }
   } catch (err) {
     clearTimeout(timeout)
     return { ok: false, error: err.message }
