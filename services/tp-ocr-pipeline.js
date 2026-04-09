@@ -127,6 +127,11 @@ export async function processWebhookMessage(body) {
     sendPush(frete.motorista_nome, frete.terminal_nome, frete.container, frete.valor_liquido)
 
     // Step 11: WhatsApp confirmation (tracked, retries inline, alerts on failure)
+    // RECOVERY_MODE: skip WhatsApp echo during bulk zombie recovery to avoid flooding driver groups
+    if (process.env.RECOVERY_MODE === 'true') {
+      await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_enviada: true, confirmacao_erro: 'RECOVERY_MODE: skipped' })
+      console.log(`[OCR] RECOVERY_MODE: skipped WhatsApp confirmation for ${frete.container}`)
+    } else {
     try {
       const confirmResult = await confirmaFrete(frete.container, msg.chat_jid)
       if (confirmResult.success) {
@@ -138,6 +143,7 @@ export async function processWebhookMessage(body) {
     } catch (confirmErr) {
       await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_erro: confirmErr.message?.substring(0, 500) }).catch(() => {})
       alertError('Confirmacao falhou', `Container: ${frete.container}\nMotorista: ${frete.motorista_nome}\nErro: ${confirmErr.message}\nCron vai retentar em ate 10min.`)
+    }
     }
 
     console.log(`[OCR] Done: ${frete.container} ${frete.motorista_nome} R$${frete.valor_liquido}`)
