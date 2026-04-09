@@ -12,6 +12,11 @@ import {
   EASYPANEL_PROJECT, EASYPANEL_SERVICE, APP_BASE_URL,
 } from './config.js'
 
+// Thresholds for receive-only zombie detection (probe OK but message gap)
+// Based on incident 09/04/2026: 57h receive-only gap with sendText probe passing.
+const GAP_SUSPECT_HOURS = 2   // Log only, no alert
+const GAP_CRITICAL_HOURS = 4  // Confirms zombie receive-only, dispatches alert + restart link
+
 // In-memory state (resets on deploy, acceptable)
 const state = {
   lastHealthyAt: Date.now(),
@@ -20,6 +25,7 @@ const state = {
   pendingActions: {},    // token -> { type, zombieStartTime, expiresAt, used }
   restartCount2h: 0,     // restarts in last 2h window
   restartWindow: Date.now(),
+  lastReceiveOnlyAlertAt: 0, // cooldown for receive-only alerts (reuses 20min window)
 }
 
 // Token management
@@ -132,22 +138,40 @@ export async function runZombieMonitor() {
         const gapHours = gapMs / (1000 * 60 * 60)
 
         if (gapHours > 1) {
-          // Suspicious gap: confirm with probe
-          console.log(`[ZombieMonitor] Suspicious gap: ${gapHours.toFixed(1)}h. Running probe...`)
+          // Suspicious gap: confirm with probe to distinguish zombie FULL vs RECEIVE-ONLY
+          console.log(`[ZombieMonitor] Gap=${gapHours.toFixed(1)}h. Running probe...`)
           const probe = await sendTextProbe()
 
           if (!probe.ok) {
+            // Zombie FULL: send path also broken
             state.consecutiveFailures++
             console.warn(`[ZombieMonitor] Probe failed (${state.consecutiveFailures}x): ${probe.error || JSON.stringify(probe.body).substring(0, 200)}`)
 
             if (state.consecutiveFailures >= 2) {
               zombieConfirmed = true
-              zombieReason = `Probe falhou ${state.consecutiveFailures}x consecutivas. Gap: ${gapHours.toFixed(1)}h sem mensagens.`
+              zombieReason = `Zombie FULL: probe sendText falhou ${state.consecutiveFailures}x. Gap: ${gapHours.toFixed(1)}h sem mensagens.`
             }
           } else {
-            // Probe OK despite gap: probably just no freight today
-            state.consecutiveFailures = 0
-            state.lastHealthyAt = Date.now()
+            // Probe OK: could be healthy (slow day) OR zombie RECEIVE-ONLY (upstream stuck)
+            // Incident 09/04/2026: 57h receive-only gap with probe passing the whole time.
+            // We discriminate by gap size.
+            if (gapHours >= GAP_CRITICAL_HOURS) {
+              // CRITICAL: receive-only zombie confirmed
+              zombieConfirmed = true
+              zombieReason = `Zombie RECEIVE-ONLY: gap ${gapHours.toFixed(1)}h sem mensagens (>=${GAP_CRITICAL_HOURS}h). sendText funciona mas MESSAGES_UPSERT upstream travado.`
+              // Reset fail counter since send path is OK (different failure mode)
+              state.consecutiveFailures = 0
+            } else if (gapHours >= GAP_SUSPECT_HOURS) {
+              // SUSPECT: log only, do not alert yet (give it some buffer)
+              console.warn(`[ZombieMonitor] Gap suspeito ${gapHours.toFixed(1)}h com probe OK. Monitorando (threshold critico: ${GAP_CRITICAL_HOURS}h).`)
+              state.consecutiveFailures = 0
+              // Intentionally do NOT reset lastHealthyAt here — keep the stale value
+              // so we can track how long it's been suspect if it escalates.
+            } else {
+              // Gap < 2h + probe OK: healthy (plausible slow day)
+              state.consecutiveFailures = 0
+              state.lastHealthyAt = Date.now()
+            }
           }
         } else {
           // Recent messages, all good
