@@ -14,8 +14,9 @@ import {
 
 // Thresholds for receive-only zombie detection (probe OK but message gap)
 // Based on incident 09/04/2026: 57h receive-only gap with sendText probe passing.
-const GAP_SUSPECT_HOURS = 2   // Log only, no alert
-const GAP_CRITICAL_HOURS = 4  // Confirms zombie receive-only, dispatches alert + restart link
+// Tuned 10/04/2026: 4h caused excessive false positives (5-6 drivers, natural 3-5h gaps).
+const GAP_SUSPECT_HOURS = 6   // Log only, no alert
+const GAP_CRITICAL_HOURS = 10 // Confirms zombie receive-only, dispatches alert + restart link
 
 // In-memory state (resets on deploy, acceptable)
 const state = {
@@ -163,20 +164,22 @@ export async function runZombieMonitor() {
               state.consecutiveFailures = 0
             } else if (gapHours >= GAP_SUSPECT_HOURS) {
               // SUSPECT: log only, do not alert yet (give it some buffer)
-              console.warn(`[ZombieMonitor] Gap suspeito ${gapHours.toFixed(1)}h com probe OK. Monitorando (threshold critico: ${GAP_CRITICAL_HOURS}h).`)
+              console.log(`[ZombieMonitor] Gap suspeito ${gapHours.toFixed(1)}h com probe OK. Monitorando (threshold critico: ${GAP_CRITICAL_HOURS}h).`)
               state.consecutiveFailures = 0
               // Intentionally do NOT reset lastHealthyAt here — keep the stale value
               // so we can track how long it's been suspect if it escalates.
             } else {
-              // Gap < 2h + probe OK: healthy (plausible slow day)
+              // Gap < 6h + probe OK: healthy (plausible slow day)
               state.consecutiveFailures = 0
               state.lastHealthyAt = Date.now()
+              state.lastReceiveOnlyAlertAt = 0 // Reset cooldown on healthy state
             }
           }
         } else {
           // Recent messages, all good
           state.consecutiveFailures = 0
           state.lastHealthyAt = Date.now()
+          state.lastReceiveOnlyAlertAt = 0 // Reset cooldown on healthy state
         }
       } else {
         // No messages in DB at all, can't determine gap
@@ -208,10 +211,16 @@ export async function runZombieMonitor() {
     // ZOMBIE CONFIRMED
     console.error(`[ZombieMonitor] ZOMBIE CONFIRMED: ${zombieReason}`)
 
-    // Cooldown: don't alert more than once per 20min
-    const cooldownMs = 20 * 60 * 1000
-    if (state.lastRestartAt && (Date.now() - state.lastRestartAt) < cooldownMs) {
-      console.log('[ZombieMonitor] Cooldown active, skipping alert')
+    // Cooldown: don't alert more than once per 20min (restart) or 2h (receive-only)
+    const restartCooldownMs = 20 * 60 * 1000
+    if (state.lastRestartAt && (Date.now() - state.lastRestartAt) < restartCooldownMs) {
+      console.log('[ZombieMonitor] Restart cooldown active, skipping alert')
+      return
+    }
+    // Receive-only alerts: 2h cooldown to avoid spamming when gap is just a slow day
+    const receiveOnlyCooldownMs = 2 * 60 * 60 * 1000
+    if (state.lastReceiveOnlyAlertAt && (Date.now() - state.lastReceiveOnlyAlertAt) < receiveOnlyCooldownMs) {
+      console.log(`[ZombieMonitor] Receive-only alert cooldown active (${formatTimeDiff(Date.now() - state.lastReceiveOnlyAlertAt)} since last), skipping`)
       return
     }
 
@@ -239,6 +248,9 @@ export async function runZombieMonitor() {
       : 'desconhecido'
 
     const actionUrl = `${APP_BASE_URL}/api/tp/zombie-restart?key=${PUSH_API_KEY}&token=${token}`
+
+    // Track receive-only alert time for cooldown
+    state.lastReceiveOnlyAlertAt = Date.now()
 
     await alertWithAction(
       'Zombie Detectado',
