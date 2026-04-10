@@ -10,10 +10,17 @@ Analyze this image and extract:
 1. TIPO_DOCUMENTO: "TICKET_FRETE" (freight ticket) or "OUTRO" (other/invalid)
 2. CONTAINER: Container/shipment number (alphanumeric, e.g. OOLU6283142)
 3. MOTORISTA: Driver name (UPPERCASE)
-4. PLACA: Vehicle license plate (Brazilian format)
+4. PLACA: Vehicle license plate (Brazilian format, field may say "Cavalo")
 5. DATA: Date in DD/MM/YYYY format. IMPORTANT: The year is ALWAYS 2026. If the year appears faded, truncated, or ambiguous, use 2026. If handwritten American format (M/D/YYYY), convert. Never return years other than 2026.
 6. LOCAL: Terminal name. Keywords: BTP, DPW, SANTOS BRASIL, ECOPORTO
-7. SEQUENCIA: Sequence number (integer 1-50). Careful with similar handwritten digits (1 vs 7, 4 vs 9).
+7. SEQUENCIA: Sequence number (integer 1-50). Careful with similar handwritten digits (1 vs 7, 4 vs 9). If not present, return null.
+
+IMPORTANT: Freight tickets come in MULTIPLE formats:
+- Classic: has sequence number, weight, etc.
+- Positioning ticket: has Bloco, Quadra, Posicao fields (Santos Brasil style).
+- Gate/entry ticket: has "Bem Vindo", driver name, plate, container.
+ALL of these are valid TICKET_FRETE if they contain a container number and a terminal/port logo.
+Only classify as OUTRO if the image has NO container number and is clearly not port-related.
 
 Return ONLY valid JSON, no markdown. Example:
 {"TIPO_DOCUMENTO":"TICKET_FRETE","CONTAINER":"OOLU6283142","MOTORISTA":"VALTER","PLACA":"GFR6A86","DATA":"12/03/2026","LOCAL":"DPW","SEQUENCIA":5}
