@@ -166,6 +166,14 @@ services/
 - `*/10 * * * *` : Retry confirmacoes WhatsApp
 - `0 6 * * *` : Safety Net + Cleanup (v2-03)
 
+### Formatos de Ticket (OCR)
+Tickets de frete vem em formatos diferentes por terminal. Todos sao TICKET_FRETE validos:
+- **Classico**: sequencia numerada, peso, dados do container
+- **Posicionamento (Santos Brasil)**: "Bem Vindo", Bloco/Quadra/Posicao, sem sequencia
+- **Gate/entrada**: logo do terminal, dados do motorista/placa/container
+
+Se Gemini classificar como OUTRO um ticket com container + terminal visivel, corrigir manualmente: inserir em `tp_fretes` via REST e atualizar `tp_mensagens_raw` status para OK (precisa service key, anon nao tem UPDATE em raw).
+
 ### Regras de Negocio
 - GROUP_MOTORISTA: grupo WhatsApp define motorista fixo (nao OCR)
 - Terminal pricing: BTP/ECOPORTO R$580, DPW/Santos Brasil R$680+R$54,90 pedagio
@@ -231,7 +239,7 @@ services/
 
 ### Regra de preco
 
-Caminhoes abastecem no **posto interno da ISIS** — ISIS cobra Thiago a parte. Preco NAO aparece na ficha. Usar preco medio estimado (diesel S10 Cubatao/SP, ~R$ 5,89/L fev/2026).
+Caminhoes abastecem no **posto interno da ISIS** — ISIS cobra Thiago a parte. Preco NAO aparece na ficha. Usar preco medio estimado (diesel S10 Cubatao/SP, **R$ 6,25/L** — padrao observado em 100% dos cadastros ate 09/04/2026).
 
 ### Dado critico: km odometro
 
@@ -254,11 +262,17 @@ O **km no odometro** em cada abastecimento e essencial para calcular consumo (km
 
 ### Grupos WhatsApp dos motoristas
 
-| Motorista | Placa | JID |
-|-----------|-------|-----|
-| ALESSANDRO + RONALDO | FJR7B87, ECS0E09, NJY9B12 | `120363039509825419@g.us` |
-| CHRISTIAN | FEI3D86 | `120363423313474684@g.us` |
+Cada motorista tem seu proprio grupo. LUIZ CARLOS e motorista volante (sem caminhao fixo) — dirige caminhoes dos outros motoristas e recebe pelos fretes que faz. O pipeline atribui fretes pelo grupo de origem da foto, nao pela placa no ticket.
+
+| Motorista | Placa(s) | JID |
+|-----------|----------|-----|
+| ALESSANDRO | FJR7B87 | `120363039509825419@g.us` |
+| RONALDO | ECS0E09, NJY9B12 (2 caminhoes) | `120363314612881947@g.us` |
+| CHRISTIAN | FEI3D86 | `120363328619713776@g.us` |
 | VALTER | GFR6A86 | `120363027158529382@g.us` |
+| LUIZ CARLOS | volante (sem caminhao fixo) | `120363406009484675@g.us` |
+
+**IMPORTANTE**: fotos no grupo do Luiz Carlos podem mostrar ticket de qualquer placa (ECS0E09, GFR6A86, FJR7B87, etc) porque ele cobre os outros motoristas. O sistema atribui corretamente o frete ao motorista_id do grupo (Luiz Carlos) que e quem recebe. Nao reatribuir por placa do ticket.
 
 ## Troubleshooting: Evolution API (instancia marcofassa)
 
@@ -289,14 +303,38 @@ A instancia `marcofassa` na Evolution API (Easypanel pessoal) roda com **115K+ m
    ```
 5. Enviar confirmacoes manualmente via `POST /api/tp/confirma-frete` ou daemon local (porta 3847)
 
-**Prevencao (implementado 28/03/2026)**: `tp-zombie-monitor.js` roda a cada 5min.
-- Detecta via gap de mensagens > 1h + sendText probe (2 falhas consecutivas = zombie confirmado)
+**Prevencao (implementado 28/03/2026, fix receive-only 09/04/2026)**: `tp-zombie-monitor.js` roda a cada 5min.
+- Detecta zombie FULL via sendText probe (2 falhas consecutivas = zombie confirmado)
+- Detecta zombie RECEIVE-ONLY via gap de mensagens em `tp_mensagens_raw`:
+  - Gap < 6h + probe OK: saudavel (dia fraco plausivel)
+  - Gap 6h-10h + probe OK: SUSPEITO (log only, sem alerta ainda)
+  - Gap >=10h + probe OK: ZOMBIE RECEIVE-ONLY critico (alerta + link restart)
+- Constantes: `GAP_SUSPECT_HOURS=6`, `GAP_CRITICAL_HOURS=10` (tuned 10/04/2026: 4h gerava falso positivo com 5-6 motoristas)
+- Cooldown receive-only: 2h entre alertas (evita spam quando gap e so dia fraco)
 - NAO usar `disconnectionReasonCode` (persiste no DB da Evolution apos reconexao, falso positivo)
 - NAO usar `DELETE /instance/logout` pra testar (destroi sessao, exige re-scan QR)
 - Alerta via Discord com link clicavel (human-in-the-loop)
 - Marco aprova restart (Easypanel tRPC deploy) e recovery (findMessages + replay)
 - Tokens de acao expiram em 1h, uso unico
-- Cooldown: 20min entre restarts, max 3 em 2h
+- Cooldown: 20min entre restarts, max 3 em 2h, 2h entre alertas receive-only
+
+### Variante: Zombie Receive-Only (descoberta 09/04/2026)
+
+Cenario diferente do zombie full: sendText funciona normalmente, mas MESSAGES_UPSERT upstream trava. Probe sendText passa verde → monitor antigo resetava `lastHealthyAt` achando "dia sem frete" → nenhum alerta por 57h. Fix aplicado no commit `153fb6f` discrimina por gap real.
+
+**Como recuperar mensagens perdidas em bulk com RECOVERY_MODE**:
+1. Patch temporario em `tp-ocr-pipeline.js` adicionando check `if (process.env.RECOVERY_MODE === 'true')` antes do `confirmaFrete()` — suprime echo WhatsApp pros grupos durante bulk
+2. `railway variables --service tpaulino-gestao-fretes --set "RECOVERY_MODE=true"`
+3. Rodar script de recovery: dedup por `msg_id` em `tp_mensagens_raw`, ordem cronologica ASC, delay 3s entre cada, POST `/api/tp/webhook` com payload minimal `{data:{key:{remoteJid,fromMe:false,id,participant},messageTimestamp,message:{imageMessage:{mimetype:'image/jpeg'},base64}}}`
+4. `railway variables --set "RECOVERY_MODE=false"`
+5. Abastecimentos com OCR classificado errado (OUTRO ou TICKET_FRETE sem container) nao entram em `tp_gastos` via pipeline — cadastrar manual via REST: `tp_gastos` com `tipo=ABASTECIMENTO`, `preco_litro=6.25`, `status=PENDENTE`
+
+### Variante: Pipeline ABASTECIMENTO → tp_gastos (automatico)
+
+O pipeline **JA tem integracao automatica** de abastecimentos. Quando Gemini classifica `TIPO_DOCUMENTO=ABASTECIMENTO`, o `tp-abastecimento.js` (cron 15min) ou o pipeline inline cria `tp_gastos` automaticamente. NAO e processo manual. Manual so e necessario quando:
+1. Gemini classifica errado como OUTRO (ticket S-10 manuscrito ruim de ler)
+2. Gemini classifica errado como TICKET_FRETE (container vazio → status ERRO)
+3. Pipeline marca msg OK mas falha silenciosa no INSERT `tp_gastos` (bug, tarefa aberta no vault)
 
 ### PINs de acesso ao app
 
