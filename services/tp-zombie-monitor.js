@@ -14,9 +14,10 @@ import {
 
 // Thresholds for receive-only zombie detection (probe OK but message gap)
 // Based on incident 09/04/2026: 57h receive-only gap with sendText probe passing.
-// Tuned 10/04/2026: 4h caused excessive false positives (5-6 drivers, natural 3-5h gaps).
-const GAP_SUSPECT_HOURS = 6   // Log only, no alert
-const GAP_CRITICAL_HOURS = 10 // Confirms zombie receive-only, dispatches alert + restart link
+// Tuned 10/04: 4h had false positives. Tuned 11/04: 10h too slow (missed 5h zombie).
+// Compromise: 4h suspect, 6h critical. Drivers send ~every 2-3h during active day.
+const GAP_SUSPECT_HOURS = 4   // Log only, no alert
+const GAP_CRITICAL_HOURS = 6  // Confirms zombie receive-only, dispatches alert + restart link
 
 // In-memory state (resets on deploy, acceptable)
 const state = {
