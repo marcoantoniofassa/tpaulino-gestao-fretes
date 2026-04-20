@@ -15,7 +15,7 @@ OCR via Gemini (em codigo Node.js, NAO usa n8n) le fotos de tickets enviados por
 | Server | Express 5 (serve SPA + Push API) |
 | Auth | PIN 4 digitos + role (admin/supervisor) |
 | Push | Web Push API + VAPID + Service Worker |
-| OCR | Gemini 2.0 Flash (em codigo, migrado do n8n) |
+| OCR | Gemini 2.5 Flash-Lite (em codigo, migrado do n8n) |
 | Deploy | Railway auto-deploy via git push |
 
 ## Estrutura
@@ -139,7 +139,7 @@ services/
 ├── config.js              # Env vars, UUIDs, constants, group mapping
 ├── supabase.js            # Supabase REST API helpers
 ├── evolution.js           # Evolution API helpers
-├── gemini-ocr.js          # Gemini 2.0 Flash OCR (ticket + abastecimento)
+├── gemini-ocr.js          # Gemini 2.5 Flash-Lite OCR (ticket + abastecimento)
 ├── business-rules.js      # FK resolution, pricing, validation
 ├── tp-ocr-pipeline.js     # v2-02: main OCR webhook pipeline
 ├── tp-confirma.js         # v2-09: WhatsApp confirmation
@@ -200,7 +200,7 @@ Se Gemini classificar como OUTRO um ticket com container + terminal visivel, cor
 | `SUPABASE_URL` | `https://dfuajmyhpfgxgonsejsc.supabase.co` |
 | `SUPABASE_SERVICE_KEY` | Service role key (OCR pipeline, storage) |
 | `SUPABASE_ANON_KEY` | Para push persistence (fallback) |
-| `GEMINI_API_KEY` | Gemini 2.0 Flash OCR |
+| `GEMINI_API_KEY` | Gemini 2.5 Flash-Lite OCR |
 | `EVOLUTION_API_ENDPOINT` | Evolution API URL |
 | `EVOLUTION_API_KEY` | Evolution API key |
 | `EVOLUTION_INSTANCE` | Instance name (`marcofassa`) |

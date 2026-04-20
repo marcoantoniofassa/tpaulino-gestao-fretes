@@ -1,8 +1,9 @@
-// services/gemini-ocr.js — Gemini 2.0 Flash OCR for freight tickets and fuel receipts
+// services/gemini-ocr.js — Gemini Flash OCR for freight tickets and fuel receipts
 import { GEMINI_KEY } from './config.js'
 import { alertWarning } from './alerting.js'
 
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite'
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`
 
 const TICKET_PROMPT = `You are an OCR specialist analyzing freight ticket images from Brazilian port logistics.
 
@@ -77,6 +78,9 @@ async function callGemini(base64, prompt) {
               { inline_data: { mime_type: 'image/jpeg', data: base64 } },
             ],
           }],
+          generationConfig: {
+            thinkingConfig: { thinkingBudget: 0 },
+          },
         }),
         signal: AbortSignal.timeout(30000),
       })
