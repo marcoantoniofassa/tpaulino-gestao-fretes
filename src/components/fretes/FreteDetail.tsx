@@ -103,7 +103,7 @@ export function FreteDetail({ frete }: FreteDetailProps) {
             <h4 className="text-sm font-semibold text-slate-700 mb-2">Valores</h4>
             <Row label="Valor Bruto" value={formatCurrency(frete.valor_bruto)} />
             <Row label="Pedágio" value={formatCurrency(frete.pedagio)} />
-            <Row label="Comissão (25%)" value={formatCurrency(frete.comissao)} />
+            <Row label="Comissão" value={formatCurrency(frete.comissao)} />
             <Row label="Valor Líquido" value={formatCurrency(frete.valor_liquido)} bold />
           </div>
 

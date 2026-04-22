@@ -53,7 +53,7 @@ export const VEICULOS = {
   'FJR7887': '30c1d111-e62d-4595-8d5b-27e559c43551',
 }
 
-// Terminal config
+// Terminal config (valor = pre-cutoff; novos valores em TERMINAIS_V2)
 export const TERMINAIS = {
   'BTP': { id: '5618b9cf-386c-44b6-888a-9ec1d6f6a269', nome: 'Brasil Terminal Portuario', valor: 580 },
   'ECOPORTO': { id: 'd7e7dcb8-a731-45d3-93a4-bf735a3b5515', nome: 'EcoPorto', valor: 580 },
@@ -65,6 +65,53 @@ export const TERMINAIS = {
 export const PEDAGIO = 54.90
 export const COMISSAO_PERCENTUAL = 0.25
 export const PRECO_LITRO_DIESEL = 6.25
+
+// Reajuste de precos a partir de 2026-04-22 (inclusive)
+// Frete sobe R$50 (580->630 / 680->740). Comissao motorista vira FIXA (145/170) em vez de 25%.
+// Diesel cai para R$6,12.
+export const PRICING_CUTOFF_DATE = '2026-04-22'
+
+export const TERMINAL_VALOR_V2 = {
+  'BTP': 630,
+  'ECOPORTO': 630,
+  'NAO_DEFINIDO': 630,
+  'DPW': 740,
+  'SANTOS BRASIL': 740,
+}
+
+export const COMISSAO_FIXA_V2 = {
+  'BTP': 145,
+  'ECOPORTO': 145,
+  'NAO_DEFINIDO': 145,
+  'DPW': 170,
+  'SANTOS BRASIL': 170,
+}
+
+export const PRECO_LITRO_DIESEL_V2 = 6.12
+
+// Helpers: escolhem valores pela data do frete/abastecimento (YYYY-MM-DD)
+export function isNewPricing(dateStr) {
+  if (!dateStr) return false
+  return String(dateStr) >= PRICING_CUTOFF_DATE
+}
+
+export function getTerminalValor(terminalKey, dateStr) {
+  if (isNewPricing(dateStr) && TERMINAL_VALOR_V2[terminalKey] != null) {
+    return TERMINAL_VALOR_V2[terminalKey]
+  }
+  return TERMINAIS[terminalKey]?.valor ?? 0
+}
+
+export function getComissao(terminalKey, valorBruto, dateStr) {
+  if (isNewPricing(dateStr) && COMISSAO_FIXA_V2[terminalKey] != null) {
+    return COMISSAO_FIXA_V2[terminalKey]
+  }
+  return Math.round((valorBruto || 0) * COMISSAO_PERCENTUAL * 100) / 100
+}
+
+export function getPrecoLitroDiesel(dateStr) {
+  return isNewPricing(dateStr) ? PRECO_LITRO_DIESEL_V2 : PRECO_LITRO_DIESEL
+}
 
 // Easypanel (for Evolution container restart)
 export const EASYPANEL_HOST = process.env.EASYPANEL_HOST || 'https://u0otng.easypanel.host'

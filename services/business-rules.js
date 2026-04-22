@@ -2,6 +2,7 @@
 import {
   GROUP_MOTORISTA, MOTORISTAS, VEICULOS, TERMINAIS,
   PEDAGIO, COMISSAO_PERCENTUAL, PRECO_LITRO_DIESEL,
+  getTerminalValor, getComissao, getPrecoLitroDiesel,
 } from './config.js'
 
 // Detect terminal from OCR text (tolerant matching — losing a freight is worse than a wrong terminal)
@@ -130,15 +131,16 @@ export function applyBusinessRules(ocr, chatJid, msgTimestamp) {
   result.terminal_key = termKey
   result.terminal_id = terminal.id
   result.terminal_nome = terminal.nome
-  result.valor_bruto = terminal.valor
+  // Pricing por data (cutoff 2026-04-22): novos valores 630/740, senao 580/680
+  result.valor_bruto = getTerminalValor(termKey, result.data_frete)
 
   // Rule 5: Pedagio (DPW/Santos Brasil only)
   if (termKey === 'DPW' || termKey === 'SANTOS BRASIL') {
     result.pedagio = PEDAGIO
   }
 
-  // Rule 6: Commission 25%
-  result.comissao = Math.round(result.valor_bruto * COMISSAO_PERCENTUAL * 100) / 100
+  // Rule 6: Commission — a partir de 2026-04-22 vira FIXA (145/170); antes 25%
+  result.comissao = getComissao(termKey, result.valor_bruto, result.data_frete)
 
   // Rule 7: Net value
   result.valor_liquido = result.valor_bruto - result.comissao - result.pedagio
@@ -203,7 +205,9 @@ export function processAbastecimento(ocr, chatJid) {
   const litros = parseFloat(ocr.LITROS) || 0
   if (litros < 30 || litros > 999) return null
 
-  const valor = Math.round(litros * PRECO_LITRO_DIESEL * 100) / 100
+  const dataAbast = convertDateToISO(ocr.DATA) || new Date().toISOString().split('T')[0]
+  const precoLitro = getPrecoLitroDiesel(dataAbast)
+  const valor = Math.round(litros * precoLitro * 100) / 100
   const descParts = []
   if (!ocr.KM_ODOMETRO) descParts.push('SEM KM')
   descParts.push('PRECO ESTIMADO')
@@ -217,11 +221,11 @@ export function processAbastecimento(ocr, chatJid) {
     status: 'PENDENTE',
     veiculo_id,
     litros,
-    preco_litro: PRECO_LITRO_DIESEL,
+    preco_litro: precoLitro,
     valor,
     km_odometro: ocr.KM_ODOMETRO ? parseInt(ocr.KM_ODOMETRO) : null,
     descricao: descParts.join(' | '),
-    data: convertDateToISO(ocr.DATA) || new Date().toISOString().split('T')[0],
+    data: dataAbast,
   }
 }
 
