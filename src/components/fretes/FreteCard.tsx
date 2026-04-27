@@ -32,6 +32,9 @@ export function FreteCard({ frete }: FreteCardProps) {
             <Badge variant={statusVariant[frete.status as keyof typeof statusVariant] || 'default'}>
               {frete.status}
             </Badge>
+            {frete.tipo_frete === 'VAZIO' && (
+              <Badge variant="warning">VAZIO</Badge>
+            )}
           </div>
           <div className="flex items-center gap-3 text-sm text-slate-500 mb-1">
             <span>{frete.tp_terminais?.codigo || 'N/A'}</span>
@@ -47,9 +50,11 @@ export function FreteCard({ frete }: FreteCardProps) {
           <div className="flex items-center gap-3 text-sm">
             <span className="text-slate-400">{formatDate(frete.data_frete)}</span>
             <span className="text-slate-400 font-semibold">{formatTime(frete.created_at)}</span>
-            {frete.container && (
+            {frete.container ? (
               <span className="text-slate-400 font-mono text-xs">{frete.container}</span>
-            )}
+            ) : frete.tipo_frete === 'VAZIO' ? (
+              <span className="text-amber-600 font-mono text-xs">sem container</span>
+            ) : null}
           </div>
         </div>
         <div className="flex items-center gap-2 ml-2">

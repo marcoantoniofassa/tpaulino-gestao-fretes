@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-04-26
+
+- `feat(vazio)`: aceitar frete sem container como `tipo_frete=VAZIO` (saida vazia / posicionamento). Antes era rejeitado com status ERRO (commit `7bb0890`).
+- `services/business-rules.js`: `applyBusinessRules` retorna `tipo_frete = container ? 'VIRA' : 'VAZIO'`.
+- `services/tp-ocr-pipeline.js`: removida rejeicao por container vazio. Pipeline + reprocess inserem `tipo_frete` no payload. Confirmacao WhatsApp e dedup por container sao puladas no caso VAZIO.
+- `services/gemini-ocr.js`: prompt orientado a tratar passe de saida sem container (Santos Brasil "DADOS DE PASSAGEM" sem CONTEINERES, etc) como TICKET_FRETE valido com CONTAINER=null.
+- `src/components/fretes/FreteCard.tsx`: badge VAZIO + label "sem container" no card.
+- Backfill manual: frete `70d73ebf` (VALTER, Santos Brasil, 25/04) corrigido de `tipo_frete=VIRA` para `VAZIO`.
+
 ## 2026-04-22
 
 - Reajuste de precos vigente a partir de 22/04/2026 (cutoff por data, historico preservado)
