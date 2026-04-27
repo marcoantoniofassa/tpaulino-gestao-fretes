@@ -84,20 +84,17 @@ export async function processWebhookMessage(body) {
       return
     }
 
-    // Step 7: Validate container before insert (empty container = ghost frete)
-    if (!frete.container || frete.container.trim() === '') {
-      console.warn(`[OCR] Rejected: empty container from ${msg.chat_jid}`)
-      await db.patch('tp_mensagens_raw', rawFilter, {
-        status: 'ERRO',
-        ocr_resultado: { ...ocr, erro: 'Container vazio, frete rejeitado' },
-      })
-      alertError('Frete REJEITADO', `Container vazio.\nMotorista: ${GROUP_MOTORISTA[msg.chat_jid]?.motorista || msg.chat_jid}\nMsg: ${msg.msg_id}`)
-      return
+    // Step 7: Container vazio = saida sem container (posicionamento/retirada de vazio).
+    // Aceita como tipo_frete=VAZIO em vez de rejeitar.
+    const isVazio = frete.tipo_frete === 'VAZIO'
+    if (isVazio) {
+      console.log(`[OCR] Frete VAZIO (sem container) from ${GROUP_MOTORISTA[msg.chat_jid]?.motorista || msg.chat_jid}`)
     }
 
     // INSERT tp_fretes
     const fretePayload = {
       container: frete.container,
+      tipo_frete: frete.tipo_frete,
       motorista_id: frete.motorista_id,
       veiculo_id: frete.veiculo_id,
       terminal_id: frete.terminal_id,
@@ -124,11 +121,16 @@ export async function processWebhookMessage(body) {
     })
 
     // Step 10: Push notification (best-effort)
-    sendPush(frete.motorista_nome, frete.terminal_nome, frete.container, frete.valor_liquido)
+    const pushLabel = frete.container || 'VAZIO'
+    sendPush(frete.motorista_nome, frete.terminal_nome, pushLabel, frete.valor_liquido)
 
-    // Step 11: WhatsApp confirmation (tracked, retries inline, alerts on failure)
-    // RECOVERY_MODE: skip WhatsApp echo during bulk zombie recovery to avoid flooding driver groups
-    if (process.env.RECOVERY_MODE === 'true') {
+    // Step 11: WhatsApp confirmation (tracked, retries inline, alerts on failure).
+    // Frete VAZIO nao tem container pra ecoar — marca como confirmado e segue.
+    if (isVazio) {
+      await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_enviada: true, confirmacao_erro: 'VAZIO: sem confirmacao' })
+      console.log(`[OCR] VAZIO: skipped WhatsApp confirmation`)
+    } else if (process.env.RECOVERY_MODE === 'true') {
+      // RECOVERY_MODE: skip WhatsApp echo during bulk zombie recovery to avoid flooding driver groups
       await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_enviada: true, confirmacao_erro: 'RECOVERY_MODE: skipped' })
       console.log(`[OCR] RECOVERY_MODE: skipped WhatsApp confirmation for ${frete.container}`)
     } else {
@@ -146,7 +148,7 @@ export async function processWebhookMessage(body) {
     }
     }
 
-    console.log(`[OCR] Done: ${frete.container} ${frete.motorista_nome} R$${frete.valor_liquido}`)
+    console.log(`[OCR] Done: ${pushLabel} ${frete.motorista_nome} R$${frete.valor_liquido}`)
 
   } catch (err) {
     console.error(`[OCR] Pipeline error for ${msg.msg_id}:`, err.message)
@@ -210,20 +212,23 @@ export async function reprocessRawRecord(record) {
     return { status: 'OK', frete_id: record.frete_id, skipped_insert: true }
   }
 
-  // Dedup: check by container + data_frete
-  const existing = await db.query('tp_fretes',
-    `select=id&container=eq.${encodeURIComponent(frete.container)}&data_frete=eq.${frete.data_frete}&limit=1`,
-    'return=representation'
-  ).catch(() => [])
-  if (existing.length > 0) {
-    console.log(`[Reprocess] Skipping INSERT, duplicate container ${frete.container} on ${frete.data_frete}: ${existing[0].id}`)
-    await db.patch('tp_mensagens_raw', rawFilter, { status: 'OK', frete_id: existing[0].id, ocr_resultado: ocr })
-    return { status: 'OK', frete_id: existing[0].id, skipped_insert: true }
+  // Dedup: check by container + data_frete (skip for VAZIO — sem container nao da pra dedupar com seguranca)
+  if (frete.container) {
+    const existing = await db.query('tp_fretes',
+      `select=id&container=eq.${encodeURIComponent(frete.container)}&data_frete=eq.${frete.data_frete}&limit=1`,
+      'return=representation'
+    ).catch(() => [])
+    if (existing.length > 0) {
+      console.log(`[Reprocess] Skipping INSERT, duplicate container ${frete.container} on ${frete.data_frete}: ${existing[0].id}`)
+      await db.patch('tp_mensagens_raw', rawFilter, { status: 'OK', frete_id: existing[0].id, ocr_resultado: ocr })
+      return { status: 'OK', frete_id: existing[0].id, skipped_insert: true }
+    }
   }
 
   // INSERT frete
   const freteRecord = await db.insert('tp_fretes', {
     container: frete.container,
+    tipo_frete: frete.tipo_frete,
     motorista_id: frete.motorista_id,
     veiculo_id: frete.veiculo_id,
     terminal_id: frete.terminal_id,
@@ -243,17 +248,22 @@ export async function reprocessRawRecord(record) {
     ocr_resultado: ocr,
   })
 
-  sendPush(frete.motorista_nome, frete.terminal_nome, frete.container, frete.valor_liquido)
+  const reprocessPushLabel = frete.container || 'VAZIO'
+  sendPush(frete.motorista_nome, frete.terminal_nome, reprocessPushLabel, frete.valor_liquido)
 
-  try {
-    const confirmResult = await confirmaFrete(frete.container, msg.chat_jid)
-    if (confirmResult.success) {
-      await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_enviada: true })
-    } else {
-      await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_erro: confirmResult.error || 'unknown' })
+  if (frete.tipo_frete === 'VAZIO') {
+    await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_enviada: true, confirmacao_erro: 'VAZIO: sem confirmacao' })
+  } else {
+    try {
+      const confirmResult = await confirmaFrete(frete.container, msg.chat_jid)
+      if (confirmResult.success) {
+        await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_enviada: true })
+      } else {
+        await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_erro: confirmResult.error || 'unknown' })
+      }
+    } catch (confirmErr) {
+      await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_erro: confirmErr.message?.substring(0, 500) }).catch(() => {})
     }
-  } catch (confirmErr) {
-    await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_erro: confirmErr.message?.substring(0, 500) }).catch(() => {})
   }
 
   return { status: 'OK', frete_id: freteRecord.id }
