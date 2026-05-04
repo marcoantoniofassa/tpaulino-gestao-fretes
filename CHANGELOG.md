@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-05-04
+
+- `feat(recovery)`: script CLI standalone pra recovery pos-zombie Evolution (`scripts/tp-recovery.js` + wrapper `tp-recovery.sh`).
+- Le mensagens do daemon WhatsApp pessoal (porta 3847), cruza com `tp_mensagens_raw` pra dedup, replica fotos no `/api/tp/webhook`. Suporta `--from`, `--to`, `--skip`, `--dry-run`.
+- Substitui `executeRecovery` do `tp-zombie-monitor.js` quando Evolution falha em devolver via `findMessages` (caso receive-only com instancia full de mensagens).
+- Sessao recovery 04/05: zombie ~3h28min, 3 fretes recuperados (HMMU5424681 ALESSANDRO, HMMU5510917 RONALDO, HMMU5498616 VALTER). 1 frete duplicado removido manualmente (foto apagada pelo motorista pre-skip-flag).
+
+## 2026-04-26
+
+- `feat(vazio)`: aceitar frete sem container como `tipo_frete=VAZIO` (saida vazia / posicionamento). Antes era rejeitado com status ERRO (commit `7bb0890`).
+- `services/business-rules.js`: `applyBusinessRules` retorna `tipo_frete = container ? 'VIRA' : 'VAZIO'`.
+- `services/tp-ocr-pipeline.js`: removida rejeicao por container vazio. Pipeline + reprocess inserem `tipo_frete` no payload. Confirmacao WhatsApp e dedup por container sao puladas no caso VAZIO.
+- `services/gemini-ocr.js`: prompt orientado a tratar passe de saida sem container (Santos Brasil "DADOS DE PASSAGEM" sem CONTEINERES, etc) como TICKET_FRETE valido com CONTAINER=null.
+- `src/components/fretes/FreteCard.tsx`: badge VAZIO + label "sem container" no card.
+- Backfill manual: frete `70d73ebf` (VALTER, Santos Brasil, 25/04) corrigido de `tipo_frete=VIRA` para `VAZIO`.
+
 ## 2026-04-22
 
 - Reajuste de precos vigente a partir de 22/04/2026 (cutoff por data, historico preservado)
