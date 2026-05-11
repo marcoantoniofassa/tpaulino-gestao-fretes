@@ -79,10 +79,12 @@ function applyBusinessDayCutoff(dateStr, msgTimestamp) {
 // msgTimestamp: ISO string or Date of when the WhatsApp photo was sent (fallback for bad OCR dates)
 export function applyBusinessRules(ocr, chatJid, msgTimestamp) {
   const rawDate = convertDateToISO(ocr.DATA) || new Date().toISOString().split('T')[0]
+  const containerRaw = (ocr.CONTAINER || '').trim()
   const result = {
     ignorado: false,
     erro_validacao: null,
-    container: ocr.CONTAINER || '',
+    container: containerRaw,
+    tipo_frete: containerRaw ? 'VIRA' : 'VAZIO',
     motorista_nome: null,
     motorista_id: null,
     placa: null,

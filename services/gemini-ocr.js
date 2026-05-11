@@ -9,7 +9,7 @@ const TICKET_PROMPT = `You are an OCR specialist analyzing freight ticket images
 
 Analyze this image and extract:
 1. TIPO_DOCUMENTO: "TICKET_FRETE" (freight ticket) or "OUTRO" (other/invalid)
-2. CONTAINER: Container/shipment number (alphanumeric, e.g. OOLU6283142)
+2. CONTAINER: Container/shipment number (alphanumeric, e.g. OOLU6283142). MAY BE NULL on empty-container trips (see below).
 3. MOTORISTA: Driver name (UPPERCASE)
 4. PLACA: Vehicle license plate (Brazilian format, field may say "Cavalo")
 5. DATA: Date in DD/MM/YYYY format. IMPORTANT: The year is ALWAYS 2026. If the year appears faded, truncated, or ambiguous, use 2026. If handwritten American format (M/D/YYYY), convert. Never return years other than 2026.
@@ -17,14 +17,18 @@ Analyze this image and extract:
 7. SEQUENCIA: Sequence number (integer 1-50). Careful with similar handwritten digits (1 vs 7, 4 vs 9). If not present, return null.
 
 IMPORTANT: Freight tickets come in MULTIPLE formats:
-- Classic: has sequence number, weight, etc.
+- Classic: has sequence number, weight, container number.
 - Positioning ticket: has Bloco, Quadra, Posicao fields (Santos Brasil style).
 - Gate/entry ticket: has "Bem Vindo", driver name, plate, container.
-ALL of these are valid TICKET_FRETE if they contain a container number and a terminal/port logo.
-Only classify as OUTRO if the image has NO container number and is clearly not port-related.
+- Empty-container trip ("frete VAZIO"): terminal pass/receipt (e.g. Santos Brasil "DADOS DE PASSAGEM" with "CONTEINERES" header but EMPTY list, or any port pass with motorista + cavalo + entrada/saida and NO container number listed). The driver is positioning/returning an empty container, no container number is printed. CONTAINER must be null in this case.
 
-Return ONLY valid JSON, no markdown. Example:
-{"TIPO_DOCUMENTO":"TICKET_FRETE","CONTAINER":"OOLU6283142","MOTORISTA":"VALTER","PLACA":"GFR6A86","DATA":"12/03/2026","LOCAL":"DPW","SEQUENCIA":5}
+ALL of these are valid TICKET_FRETE as long as they show a port/terminal logo + driver/plate. Container being missing is OK for VAZIO trips — DO NOT classify as OUTRO just because there is no container number.
+
+Only classify as OUTRO if the image is clearly not a port document (pump display, random photo, fuel ticket, food receipt, etc).
+
+Return ONLY valid JSON, no markdown. Examples:
+- Cheio:  {"TIPO_DOCUMENTO":"TICKET_FRETE","CONTAINER":"OOLU6283142","MOTORISTA":"VALTER","PLACA":"GFR6A86","DATA":"12/03/2026","LOCAL":"DPW","SEQUENCIA":5}
+- Vazio:  {"TIPO_DOCUMENTO":"TICKET_FRETE","CONTAINER":null,"MOTORISTA":"VALTER","PLACA":"GFR6A86","DATA":"26/04/2026","LOCAL":"SANTOS BRASIL","SEQUENCIA":null}
 
 If not a valid freight ticket: {"TIPO_DOCUMENTO":"OUTRO"}`
 
