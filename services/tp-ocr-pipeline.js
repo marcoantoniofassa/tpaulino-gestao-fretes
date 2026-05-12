@@ -125,11 +125,8 @@ export async function processWebhookMessage(body) {
     sendPush(frete.motorista_nome, frete.terminal_nome, pushLabel, frete.valor_liquido)
 
     // Step 11: WhatsApp confirmation (tracked, retries inline, alerts on failure).
-    // Frete VAZIO nao tem container pra ecoar — marca como confirmado e segue.
-    if (isVazio) {
-      await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_enviada: true, confirmacao_erro: 'VAZIO: sem confirmacao' })
-      console.log(`[OCR] VAZIO: skipped WhatsApp confirmation`)
-    } else if (process.env.RECOVERY_MODE === 'true') {
+    // Frete sem container (VAZIO real ou OCR falhou) ainda recebe confirmacao com placeholder.
+    if (process.env.RECOVERY_MODE === 'true') {
       // RECOVERY_MODE: skip WhatsApp echo during bulk zombie recovery to avoid flooding driver groups
       await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_enviada: true, confirmacao_erro: 'RECOVERY_MODE: skipped' })
       console.log(`[OCR] RECOVERY_MODE: skipped WhatsApp confirmation for ${frete.container}`)
@@ -251,19 +248,15 @@ export async function reprocessRawRecord(record) {
   const reprocessPushLabel = frete.container || 'VAZIO'
   sendPush(frete.motorista_nome, frete.terminal_nome, reprocessPushLabel, frete.valor_liquido)
 
-  if (frete.tipo_frete === 'VAZIO') {
-    await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_enviada: true, confirmacao_erro: 'VAZIO: sem confirmacao' })
-  } else {
-    try {
-      const confirmResult = await confirmaFrete(frete.container, msg.chat_jid)
-      if (confirmResult.success) {
-        await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_enviada: true })
-      } else {
-        await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_erro: confirmResult.error || 'unknown' })
-      }
-    } catch (confirmErr) {
-      await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_erro: confirmErr.message?.substring(0, 500) }).catch(() => {})
+  try {
+    const confirmResult = await confirmaFrete(frete.container, msg.chat_jid)
+    if (confirmResult.success) {
+      await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_enviada: true })
+    } else {
+      await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_erro: confirmResult.error || 'unknown' })
     }
+  } catch (confirmErr) {
+    await db.patch('tp_fretes', `id=eq.${freteRecord.id}`, { confirmacao_erro: confirmErr.message?.substring(0, 500) }).catch(() => {})
   }
 
   return { status: 'OK', frete_id: freteRecord.id }

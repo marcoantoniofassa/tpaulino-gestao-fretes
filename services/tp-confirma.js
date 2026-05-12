@@ -10,12 +10,13 @@ async function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
 
 // Send confirmation message with automatic retry
 export async function confirmaFrete(container, chatJid) {
-  if (!container || !chatJid) {
-    console.warn('[Confirma] Missing container or chat_jid, skipping')
+  if (!chatJid) {
+    console.warn('[Confirma] Missing chat_jid, skipping')
     return { success: false, reason: 'missing_data' }
   }
 
-  const text = `Frete ${container} cadastrado.`
+  const label = container && container.trim() ? container.trim() : 'container nao identificado'
+  const text = `Frete ${label} cadastrado.`
   let lastErr = null
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
