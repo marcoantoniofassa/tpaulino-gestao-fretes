@@ -31,144 +31,162 @@ export async function runBackfill() {
   const sinceMs = Date.now() - LOOKBACK_HOURS * 60 * 60 * 1000
   const sinceUnix = Math.floor(sinceMs / 1000)
 
+  // Ativa RECOVERY_MODE pra esta execucao: pipeline NAO envia confirmacao no grupo
+  // (motorista nao recebe ping 03h da manha). Ainda marca confirmacao_enviada=true
+  // com confirmacao_erro='RECOVERY_MODE: skipped' no tp_fretes pra rastrear.
+  // Restaurado no finally.
+  const recoveryModePrev = process.env.RECOVERY_MODE
+  process.env.RECOVERY_MODE = 'true'
+
   const recovered = []
   const skipped = []
   const failed = []
   const groupJids = Object.keys(GROUP_MOTORISTA)
 
-  for (const jid of groupJids) {
-    const motorista = GROUP_MOTORISTA[jid]?.motorista || jid
-    try {
-      // 1. Pega mensagens da Evolution PG store no periodo (MongoDB-style $gte)
-      const result = await findMessages(
-        {
-          key: { remoteJid: jid },
-          messageTimestamp: { $gte: sinceUnix },
-        },
-        1,
-        100,
-      )
-      const records = result?.messages?.records || result?.messages || []
-      const imageMessages = records.filter((m) => m.message?.imageMessage && m.key?.id && !m.key?.fromMe)
-      if (imageMessages.length === 0) {
-        console.log(`[Backfill] ${motorista}: nenhuma imagem nas ultimas ${LOOKBACK_HOURS}h`)
-        continue
-      }
+  try {
+    for (const jid of groupJids) {
+      const motorista = GROUP_MOTORISTA[jid]?.motorista || jid
+      try {
+        // 1. Pega mensagens da Evolution PG store no periodo (MongoDB-style $gte)
+        const result = await findMessages(
+          {
+            key: { remoteJid: jid },
+            messageTimestamp: { $gte: sinceUnix },
+          },
+          1,
+          100,
+        )
+        const records = result?.messages?.records || result?.messages || []
+        const imageMessages = records.filter((m) => m.message?.imageMessage && m.key?.id && !m.key?.fromMe)
+        if (imageMessages.length === 0) {
+          console.log(`[Backfill] ${motorista}: nenhuma imagem nas ultimas ${LOOKBACK_HOURS}h`)
+          continue
+        }
 
-      console.log(`[Backfill] ${motorista}: ${imageMessages.length} imagens na evolution nas ultimas ${LOOKBACK_HOURS}h`)
+        console.log(`[Backfill] ${motorista}: ${imageMessages.length} imagens na evolution nas ultimas ${LOOKBACK_HOURS}h`)
 
-      // Safety cap: se Evolution retorna muita coisa nesse grupo, algo ta errado.
-      if (imageMessages.length > MAX_GAPS_PER_GROUP * 5) {
-        const reason = `cap excedido: ${imageMessages.length} imagens (esperado <= ${MAX_GAPS_PER_GROUP * 5})`
-        console.warn(`[Backfill] ${motorista}: ${reason}, pulando`)
-        failed.push({ jid, reason })
-        continue
-      }
+        // Safety cap: se Evolution retorna muita coisa nesse grupo, algo ta errado.
+        if (imageMessages.length > MAX_GAPS_PER_GROUP * 5) {
+          const reason = `cap excedido: ${imageMessages.length} imagens (esperado <= ${MAX_GAPS_PER_GROUP * 5})`
+          console.warn(`[Backfill] ${motorista}: ${reason}, pulando`)
+          failed.push({ jid, reason })
+          continue
+        }
 
-      // 2. Pra cada imagem, verificar se ja existe em raw e injetar gap
-      let gapsInGroup = 0
-      for (const m of imageMessages) {
-        const msgId = m.key.id
+        // 2. Pra cada imagem, verificar se ja existe em raw e injetar gap
+        let gapsInGroup = 0
+        for (const m of imageMessages) {
+          const msgId = m.key.id
 
-        // 2a. Dedup
-        try {
-          const existing = await db.query(
-            'tp_mensagens_raw',
-            `select=msg_id,status&msg_id=eq.${encodeURIComponent(msgId)}&limit=1`,
-            'return=representation',
-          )
-          if (existing.length > 0) {
-            skipped.push({ msg_id: msgId, jid, status: existing[0].status })
+          // 2a. Dedup
+          try {
+            const existing = await db.query(
+              'tp_mensagens_raw',
+              `select=msg_id,status&msg_id=eq.${encodeURIComponent(msgId)}&limit=1`,
+              'return=representation',
+            )
+            if (existing.length > 0) {
+              skipped.push({ msg_id: msgId, jid, status: existing[0].status })
+              continue
+            }
+          } catch {}
+
+          // Atingiu cap de gaps neste grupo: para de injetar e sai do loop do grupo.
+          // (Marco investiga manual. Continuar iteraria as msgs restantes empilhando
+          // entradas duplicadas em `failed` sem nenhum proposito util.)
+          if (gapsInGroup >= MAX_GAPS_PER_GROUP) {
+            failed.push({ jid, reason: `MAX_GAPS_PER_GROUP=${MAX_GAPS_PER_GROUP} excedido neste grupo, demais msgs nao processadas` })
+            break
+          }
+
+          gapsInGroup++
+
+          // 2b. Pega base64 (pode ja vir embutido na response, senao baixa)
+          let base64 = m.message?.base64 || ''
+          if (!base64 && m.message) {
+            base64 = (await getBase64FromMedia(m.message).catch(() => null)) || ''
+          }
+
+          // 2c. Sem base64 -> inserir PENDENTE pro safety-net das 06:00 BRT pegar
+          if (!base64) {
+            try {
+              await db.insert('tp_mensagens_raw', {
+                msg_id: msgId,
+                chat_jid: jid,
+                sender_jid: m.key.participant || '',
+                timestamp_msg: new Date((m.messageTimestamp || sinceUnix) * 1000).toISOString(),
+                status: 'PENDENTE',
+                caption: m.message?.imageMessage?.caption || null,
+              })
+              failed.push({ msg_id: msgId, jid, reason: 'sem base64, marcado PENDENTE pro safety-net' })
+            } catch (insertErr) {
+              failed.push({ msg_id: msgId, jid, reason: insertErr.message })
+            }
             continue
           }
-        } catch {}
 
-        // Atingiu cap de gaps neste grupo: parar de injetar (Marco vai investigar)
-        if (gapsInGroup >= MAX_GAPS_PER_GROUP) {
-          failed.push({ jid, msg_id: msgId, reason: `MAX_GAPS_PER_GROUP=${MAX_GAPS_PER_GROUP} excedido` })
-          continue
-        }
-
-        gapsInGroup++
-
-        // 2b. Pega base64 (pode ja vir embutido na response, senao baixa)
-        let base64 = m.message?.base64 || ''
-        if (!base64 && m.message) {
-          base64 = (await getBase64FromMedia(m.message).catch(() => null)) || ''
-        }
-
-        // 2c. Sem base64 -> inserir PENDENTE pro safety-net das 06:00 BRT pegar
-        if (!base64) {
-          try {
-            await db.insert('tp_mensagens_raw', {
-              msg_id: msgId,
-              chat_jid: jid,
-              sender_jid: m.key.participant || '',
-              timestamp_msg: new Date((m.messageTimestamp || sinceUnix) * 1000).toISOString(),
-              status: 'PENDENTE',
-              caption: m.message?.imageMessage?.caption || null,
-            })
-            failed.push({ msg_id: msgId, jid, reason: 'sem base64, marcado PENDENTE pro safety-net' })
-          } catch (insertErr) {
-            failed.push({ msg_id: msgId, jid, reason: insertErr.message })
+          // 2d. Injetar via pipeline (mesmo caminho do webhook Evolution).
+          // RECOVERY_MODE=true acima -> pipeline NAO envia confirmacao no grupo.
+          const fakeWebhook = {
+            data: {
+              key: {
+                remoteJid: jid,
+                fromMe: false,
+                id: msgId,
+                participant: m.key.participant || '',
+              },
+              messageTimestamp: m.messageTimestamp || sinceUnix,
+              message: {
+                imageMessage: m.message.imageMessage,
+                base64,
+              },
+            },
           }
-          continue
-        }
+          try {
+            await processWebhookMessage(fakeWebhook)
+            recovered.push({ msg_id: msgId, jid })
+            console.log(`[Backfill] ${motorista}: ${msgId} injetada com sucesso`)
+          } catch (err) {
+            failed.push({ msg_id: msgId, jid, reason: err.message })
+          }
 
-        // 2d. Injetar via pipeline (mesmo caminho do webhook Evolution)
-        const fakeWebhook = {
-          data: {
-            key: {
-              remoteJid: jid,
-              fromMe: false,
-              id: msgId,
-              participant: m.key.participant || '',
-            },
-            messageTimestamp: m.messageTimestamp || sinceUnix,
-            message: {
-              imageMessage: m.message.imageMessage,
-              base64,
-            },
-          },
+          // Espacar Gemini OCR
+          await new Promise((r) => setTimeout(r, DELAY_BETWEEN_INJECTIONS_MS))
         }
-        try {
-          await processWebhookMessage(fakeWebhook)
-          recovered.push({ msg_id: msgId, jid })
-          console.log(`[Backfill] ${motorista}: ${msgId} injetada com sucesso`)
-        } catch (err) {
-          failed.push({ msg_id: msgId, jid, reason: err.message })
-        }
-
-        // Espacar Gemini OCR + WhatsApp confirmacao
-        await new Promise((r) => setTimeout(r, DELAY_BETWEEN_INJECTIONS_MS))
+      } catch (err) {
+        console.error(`[Backfill] ${motorista}: erro fatal:`, err.message)
+        failed.push({ jid, reason: err.message })
       }
-    } catch (err) {
-      console.error(`[Backfill] ${motorista}: erro fatal:`, err.message)
-      failed.push({ jid, reason: err.message })
     }
-  }
 
-  const stats = { recovered: recovered.length, skipped: skipped.length, failed: failed.length }
-  console.log('[Backfill] Done. Stats:', stats)
+    const stats = { recovered: recovered.length, skipped: skipped.length, failed: failed.length }
+    console.log('[Backfill] Done. Stats:', stats)
 
-  // Notificar Marco SO se backfill atuou ou teve falha real
-  // (skipped sozinho = scan normal, nao notifica)
-  if (recovered.length > 0 || failed.length > 0) {
-    const motoristasRecovered = {}
-    for (const r of recovered) {
-      const mn = GROUP_MOTORISTA[r.jid]?.motorista || r.jid
-      motoristasRecovered[mn] = (motoristasRecovered[mn] || 0) + 1
+    // Notificar Marco SO se backfill atuou ou teve falha real
+    // (skipped sozinho = scan normal, nao notifica)
+    if (recovered.length > 0 || failed.length > 0) {
+      const motoristasRecovered = {}
+      for (const r of recovered) {
+        const mn = GROUP_MOTORISTA[r.jid]?.motorista || r.jid
+        motoristasRecovered[mn] = (motoristasRecovered[mn] || 0) + 1
+      }
+      const lines = [`[T-Paulino Backfill diario]`]
+      if (recovered.length > 0) {
+        lines.push(`Recuperou ${recovered.length} frete(s) (confirmacao no grupo desabilitada - motoristas dormindo):`)
+        lines.push(Object.entries(motoristasRecovered).map(([k, v]) => `- ${k}: ${v}`).join('\n'))
+      }
+      if (failed.length > 0) {
+        lines.push(`Falhas: ${failed.length}`)
+        lines.push(failed.slice(0, 5).map((f) => `- ${f.msg_id?.substring(0, 12) || f.jid}: ${f.reason}`).join('\n'))
+      }
+      sendText(MARCO_WHATSAPP, lines.join('\n')).catch(() => {})
     }
-    const lines = [`[T-Paulino Backfill diario]`]
-    if (recovered.length > 0) {
-      lines.push(`Recuperou ${recovered.length} frete(s):`)
-      lines.push(Object.entries(motoristasRecovered).map(([k, v]) => `- ${k}: ${v}`).join('\n'))
-    }
-    if (failed.length > 0) {
-      lines.push(`Falhas: ${failed.length}`)
-      lines.push(failed.slice(0, 5).map((f) => `- ${f.msg_id?.substring(0, 12) || f.jid}: ${f.reason}`).join('\n'))
-    }
-    sendText(MARCO_WHATSAPP, lines.join('\n')).catch(() => {})
+    return stats
+  } finally {
+    // Restaura RECOVERY_MODE pro estado anterior (importante: webhook em paralelo
+    // nao deve herdar a flag, pois enviaria confirmacao = false fora de janela
+    // de backfill).
+    if (recoveryModePrev === undefined) delete process.env.RECOVERY_MODE
+    else process.env.RECOVERY_MODE = recoveryModePrev
   }
-  return stats
 }
