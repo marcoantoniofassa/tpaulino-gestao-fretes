@@ -189,6 +189,21 @@ app.post('/api/tp/reprocess', async (req, res) => {
   res.json({ ok: true, stats })
 })
 
+// Manual backfill trigger: scan Evolution vs tp_mensagens_raw, inject gaps
+app.post('/api/tp/backfill', async (req, res) => {
+  const apiKey = req.headers['x-api-key'] || req.query.key
+  if (apiKey !== PUSH_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+  try {
+    const { runBackfill } = await import('./services/tp-backfill.js')
+    const stats = await runBackfill()
+    res.json({ ok: true, stats })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // Retry failed confirmations
 app.post('/api/tp/retry-confirmacoes', async (req, res) => {
   const apiKey = req.headers['x-api-key'] || req.query.key

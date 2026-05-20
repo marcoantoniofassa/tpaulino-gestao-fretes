@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-05-20
+
+- `feat(backfill)`: cron diario `tp-backfill.js` 03:00 BRT compara mensagens da Evolution PG store vs `tp_mensagens_raw` nas ultimas 24h e re-injeta gaps via pipeline. Idempotente (dedup por msg_id + UNIQUE constraint). Endpoint manual `POST /api/tp/backfill` (header `x-api-key`).
+- Motivacao: 19/05 downtime provider-wide Railway ~6h derrubou webhook Evolution -> Railway. 5 fretes ficaram fora de `tp_mensagens_raw` e foram recuperados manualmente em 20/05. Cron resolve sozinho na proxima madrugada caso aconteca de novo. Notifica Marco no zap pessoal so se atuou.
+- Reaproveita padrao de recovery validado em `tp-zombie-monitor.js` (`findMessages` + `getBase64FromMedia` + `processWebhookMessage`). Roda antes do safety-net (06:00 BRT) pra registros recem-injetados ja passarem pela rede de protecao.
+
 ## 2026-05-04
 
 - `feat(recovery)`: script CLI standalone pra recovery pos-zombie Evolution (`scripts/tp-recovery.js` + wrapper `tp-recovery.sh`).
