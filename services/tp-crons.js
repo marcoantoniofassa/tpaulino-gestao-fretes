@@ -5,6 +5,7 @@ import { runSafetyNet } from './tp-safety-net.js'
 import { runAbastecimentoScan } from './tp-abastecimento.js'
 import { retryFailedConfirmacoes } from './tp-confirma.js'
 import { runZombieMonitor } from './tp-zombie-monitor.js'
+import { runBackfill } from './tp-backfill.js'
 
 export function startCrons() {
   // v2-07: Healthcheck every 30 minutes
@@ -24,6 +25,14 @@ export function startCrons() {
     runSafetyNet().catch(err => console.error('[Cron] SafetyNet error:', err.message))
   }, { timezone: 'America/Sao_Paulo' })
   console.log('[Cron] SafetyNet scheduled: daily 06:00 BRT')
+
+  // Backfill daily at 03:00 BRT — recupera gaps do webhook Evolution -> Railway
+  // (downtime Railway, problemas de rede). Idempotente via UNIQUE(msg_id, chat_jid).
+  // Roda antes do SafetyNet pra que registros recem-injetados ja passem pela rede de protecao.
+  cron.schedule('0 3 * * *', () => {
+    runBackfill().catch(err => console.error('[Cron] Backfill error:', err.message))
+  }, { timezone: 'America/Sao_Paulo' })
+  console.log('[Cron] Backfill scheduled: daily 03:00 BRT')
 
   // Retry failed WhatsApp confirmations every 10 minutes
   cron.schedule('*/10 * * * *', () => {
