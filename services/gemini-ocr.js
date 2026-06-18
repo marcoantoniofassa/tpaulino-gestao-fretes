@@ -67,6 +67,12 @@ If not an S-10 ticket: {"TIPO_DOCUMENTO":"OUTRO"}`
 const MAX_RETRIES = 3
 const RETRY_CODES = new Set([429, 500, 502, 503, 529])
 
+// 403 transitório do "preview" do enforcement de chaves do Google (jun/2026): a chave JÁ esta
+// restrita a Gemini API, mas durante o preview o Google rejeita uma fracao das chamadas de forma
+// intermitente. Retentar SO esse caso, identificado pela mensagem. Um 403 real (chave revogada/
+// invalida/sem permissao) continua falhando rapido, sem loop de retry inutil.
+const TRANSIENT_403_RE = /temporary service disruptions|unrestricted key|preview of the enforcement/i
+
 async function callGemini(base64, prompt) {
   let lastError
 
@@ -93,13 +99,17 @@ async function callGemini(base64, prompt) {
         const body = await res.text()
         lastError = new Error(`Gemini OCR: ${res.status} ${body}`)
 
-        if (RETRY_CODES.has(res.status) && attempt < MAX_RETRIES) {
+        const retryable = RETRY_CODES.has(res.status) ||
+          (res.status === 403 && TRANSIENT_403_RE.test(body))
+        if (retryable && attempt < MAX_RETRIES) {
           const delay = Math.min(2000 * Math.pow(2, attempt - 1), 15000)
           console.warn(`[Gemini] ${res.status} on attempt ${attempt}/${MAX_RETRIES}, retrying in ${delay}ms`)
           if (attempt >= 2) alertWarning('Gemini retry', `Status ${res.status} na tentativa ${attempt}/${MAX_RETRIES}`)
           await new Promise(r => setTimeout(r, delay))
           continue
         }
+        // status HTTP definitivo (403 real de chave invalida, 400, 404...): nao reentrar no loop
+        if (!retryable) lastError.fatal = true
         throw lastError
       }
 
@@ -116,6 +126,7 @@ async function callGemini(base64, prompt) {
       }
     } catch (err) {
       lastError = err
+      if (err.fatal) throw err // erro HTTP definitivo: falha rapido, sem retentar
       if (err.name === 'TimeoutError' && attempt < MAX_RETRIES) {
         console.warn(`[Gemini] Timeout on attempt ${attempt}/${MAX_RETRIES}, retrying`)
         continue
