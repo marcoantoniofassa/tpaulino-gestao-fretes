@@ -294,6 +294,9 @@ A instancia `marcofassa` na Evolution API (Easypanel pessoal) roda com **115K+ m
 - `groupsIgnore: true` NAO e opcao: bloqueia MESSAGES_UPSERT de grupos (3 camadas no codigo Baileys)
 
 **Recuperacao de fotos perdidas**:
+
+> PONTO CEGO CRITICO: `POST /api/tp/backfill` (e o cron 03h) le do STORE da Evolution (`findMessages`), que fica VAZIO durante zombie de RECEBIMENTO. Logo `recovered=0` do backfill NAO prova "sem perda" quando a Evolution parou de receber. A fonte de verdade pra recuperar e SEMPRE o daemon local (porta 3847), conexao separada que captura tudo. Redeploy do container NAO re-busca msgs ja entregues-e-dropadas -> recuperar do daemon mesmo apos redeploy. Incidente 01/07/2026: backfill recovered=0 mas 3 fretes (NYKU3879952, CAIU9050787, MNBU4476154) estavam so no daemon; recuperados via injecao no /api/tp/webhook.
+
 1. O daemon WhatsApp pessoal (porta 3847) salva todas as imagens localmente em `whatsapp-mcp-pessoal/media/`
 2. Consultar `GET /messages/{group_jid}?limit=30` no daemon pra listar imagens com msg_id e timestamp
 3. Cruzar msg_ids com `tp_mensagens_raw` no Supabase pra identificar as faltantes
@@ -306,10 +309,11 @@ A instancia `marcofassa` na Evolution API (Easypanel pessoal) roda com **115K+ m
 **Prevencao (implementado 28/03/2026, fix receive-only 09/04/2026)**: `tp-zombie-monitor.js` roda a cada 5min.
 - Detecta zombie FULL via sendText probe (2 falhas consecutivas = zombie confirmado)
 - Detecta zombie RECEIVE-ONLY via gap de mensagens em `tp_mensagens_raw`:
-  - Gap < 6h + probe OK: saudavel (dia fraco plausivel)
-  - Gap 6h-10h + probe OK: SUSPEITO (log only, sem alerta ainda)
-  - Gap >=10h + probe OK: ZOMBIE RECEIVE-ONLY critico (alerta + link restart)
-- Constantes: `GAP_SUSPECT_HOURS=6`, `GAP_CRITICAL_HOURS=10` (tuned 10/04/2026: 4h gerava falso positivo com 5-6 motoristas)
+  - Gap < 4h + probe OK: saudavel (dia fraco plausivel)
+  - Gap 4h-6h + probe OK: SUSPEITO (log only, sem alerta ainda)
+  - Gap >=6h + probe OK: ZOMBIE RECEIVE-ONLY critico (alerta + link restart)
+- Constantes: `GAP_SUSPECT_HOURS=4`, `GAP_CRITICAL_HOURS=6`
+- ATENCAO: a "probe" (`sendTextProbe`) so checa `connectionState=open`, NAO testa recebimento. "ZOMBIE RECEIVE-ONLY" e inferencia (gap + open) e pode dar falso-positivo em dia realmente fraco. Confirmar via daemon (secao Recuperacao) antes de concluir perda OU saude.
 - Cooldown receive-only: 2h entre alertas (evita spam quando gap e so dia fraco)
 - NAO usar `disconnectionReasonCode` (persiste no DB da Evolution apos reconexao, falso positivo)
 - NAO usar `DELETE /instance/logout` pra testar (destroi sessao, exige re-scan QR)
