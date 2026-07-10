@@ -133,19 +133,16 @@ export function applyBusinessRules(ocr, chatJid, msgTimestamp) {
   result.terminal_key = termKey
   result.terminal_id = terminal.id
   result.terminal_nome = terminal.nome
-  // Pricing por data (cutoff 2026-04-22): novos valores 630/740, senao 580/680
-  result.valor_bruto = getTerminalValor(termKey, result.data_frete)
 
-  // Rule 5: Pedagio (DPW/Santos Brasil only)
+  // Rule 5: Pedagio (DPW/Santos Brasil only) — depende so do terminal, nao da data
   if (termKey === 'DPW' || termKey === 'SANTOS BRASIL') {
     result.pedagio = PEDAGIO
   }
 
-  // Rule 6: Commission — a partir de 2026-04-22 vira FIXA (145/170); antes 25%
-  result.comissao = getComissao(termKey, result.valor_bruto, result.data_frete)
-
-  // Rule 7: Net value
-  result.valor_liquido = result.valor_bruto - result.comissao - result.pedagio
+  // NOTA (fix 2026-07-10): valor_bruto/comissao/valor_liquido sao calculados
+  // DEPOIS da Regra 8. A Regra 8 pode corrigir uma data OCR fora de range pro
+  // timestamp da mensagem; precificar antes disso deixava fretes pos-cutoff com
+  // valor pre-cutoff (Santos Brasil ~50% a 680 em vez de 740). Ver Rule 4b abaixo.
 
   // Rule 8: Date validation (within 7 days past / 7 days future)
   // If OCR date is out of range, fallback to message timestamp (when photo was sent).
@@ -172,6 +169,12 @@ export function applyBusinessRules(ocr, chatJid, msgTimestamp) {
       }
     }
   }
+
+  // Rule 4b/6/7: Pricing — calculado AQUI, depois da Regra 8, pra usar a
+  // data_frete FINAL (fix 2026-07-10 do subfaturamento Santos Brasil 680 vs 740).
+  result.valor_bruto = getTerminalValor(termKey, result.data_frete)
+  result.comissao = getComissao(termKey, result.valor_bruto, result.data_frete)
+  result.valor_liquido = result.valor_bruto - result.comissao - result.pedagio
 
   // Rule 9: Sequence 1-50
   if (result.sequencia < 1 || result.sequencia > 50) {
