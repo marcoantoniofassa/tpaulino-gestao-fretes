@@ -30,6 +30,31 @@ const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK_URL || ''
 // Discord ID do Marco. So entra no payload em modo 'alerta'.
 export const MARCO_DISCORD_ID = '834406885309546568'
 
+// Limites do Discord. Payload acima disso volta 400 e o alerta some calado, entao quem
+// e dono do post corta ANTES de enviar em vez de confiar no texto que o caller montou.
+// (content aqui e so a mencao, tamanho fixo: nao disputa espaco com texto de ninguem.)
+const LIMITE = { title: 256, description: 4096, fieldName: 256, fieldValue: 1024, footer: 2048, fields: 25 }
+
+function corta(txt, max) {
+  const s = String(txt ?? '')
+  return s.length <= max ? s : `${s.substring(0, max - 3)}...`
+}
+
+function cortaEmbed(embed) {
+  const out = { ...embed }
+  if (out.title) out.title = corta(out.title, LIMITE.title)
+  if (out.description) out.description = corta(out.description, LIMITE.description)
+  if (out.footer?.text) out.footer = { ...out.footer, text: corta(out.footer.text, LIMITE.footer) }
+  if (Array.isArray(out.fields)) {
+    out.fields = out.fields.slice(0, LIMITE.fields).map(f => ({
+      ...f,
+      name: corta(f.name, LIMITE.fieldName),
+      value: corta(f.value, LIMITE.fieldValue),
+    }))
+  }
+  return out
+}
+
 export async function postDiscord(mode, embed) {
   if (mode !== 'alerta' && mode !== 'log') {
     throw new Error(
@@ -41,7 +66,7 @@ export async function postDiscord(mode, embed) {
   if (!DISCORD_WEBHOOK) return { skipped: 'webhook-nao-configurado' }
 
   const body = {
-    embeds: [embed],
+    embeds: [cortaEmbed(embed)],
     allowed_mentions: mode === 'alerta'
       ? { parse: [], users: [MARCO_DISCORD_ID] }
       : { parse: [] },
@@ -54,7 +79,17 @@ export async function postDiscord(mode, embed) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  return { ok: res?.ok !== false, status: res?.status }
+
+  // 4xx/5xx resolvem o fetch sem lancar: sem esta checagem o post recusado (webhook
+  // rotacionado = 404, rate limit = 429, payload invalido = 400) some calado e o parque
+  // de alerta fica mudo com aparencia de saudavel, que e a mesma falha uma camada abaixo.
+  if (!res || !res.ok) {
+    const corpo = res?.text ? await res.text().catch(() => '') : ''
+    const msg = `Discord recusou o post (http=${res?.status ?? 'sem-resposta'}, modo=${mode}): ${corpo.substring(0, 200)}`
+    console.error(`[ALERT] ${msg}`)
+    throw new Error(msg)
+  }
+  return { ok: true, status: res.status }
 }
 
 // Erro de verdade: pipeline quebrou, confirmacao falhou, restart falhou. Pinga.

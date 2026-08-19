@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-08-19
+
+- `fix(discord)`: classificacao de alerta corrigida nos dois sentidos (PR #20, review Claude + Codex).
+- `services/tp-zombie-monitor.js`: recuperacao com `failed.length > 0` sai por `alertError` em vez de `alertSuccess`. Antes, recuperacao que deixava frete pra tras avisava mudo num canal em Only @mentions.
+- `services/tp-ocr-pipeline.js`: `Frete IGNORADO` classifica pelo MOTIVO. `Not TICKET_FRETE` e rotina (todo comprovante de abastecimento passa por IGNORADO ate o cron de 15min achar o S-10) e vira `log`; grupo/terminal/data nao reconhecidos continuam `alerta`. Spam diario de ping e o que fez o canal ser silenciado em 10/08.
+- `services/tp-confirma.js`: `Confirmacoes pendentes` vira `alerta`. Falha que sobreviveu a 3 tentativas inline mais uma rodada do cron nao e rotina.
+- `services/alerting.js`: `postDiscord` checa o status HTTP, loga e lanca. 400/401/404/429 resolviam o `fetch` sem lancar e o alerta sumia calado com o sistema reportando sucesso. Embed cortado nos limites do Discord (title 256, description 4096, field value 1024, footer 2048) antes do envio.
+- `services/alerting.check.js`: virou gate de verdade. Stub com resposta configuravel cobre 400/401/404/429/500, o corte de tamanho e o fallback WhatsApp sobrevivendo ao Discord 404. Varredura do repo inteiro reprova poster de Discord fora do helper (URL de webhook, `process.env.*DISCORD*`, `allowed_mentions` a mao). Provado no negativo com fixture infrator temporario: exit 1.
+
 ## 2026-05-20
 
 - `feat(backfill)`: cron diario `tp-backfill.js` 03:00 BRT compara mensagens da Evolution PG store vs `tp_mensagens_raw` nas ultimas 24h e re-injeta gaps via pipeline. Idempotente (dedup por msg_id + UNIQUE constraint). Endpoint manual `POST /api/tp/backfill` (header `x-api-key`).

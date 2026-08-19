@@ -493,7 +493,13 @@ export async function executeRecovery(token) {
     failed.length > 0 ? `**Erros:** ${failed.map(f => f.reason || 'unknown').join('; ').substring(0, 300)}` : '',
   ].filter(Boolean).join('\n')
 
-  await alertSuccess('Recuperacao Concluida', summary)
+  // O modo sai do RESULTADO, nao da funcao: recuperacao que deixou mensagem pra tras e
+  // frete que nunca entra no sistema. Se falhou alguma, alguem precisa agir, entao pinga.
+  if (failed.length > 0) {
+    await alertError('Recuperacao Concluida (com falhas)', summary)
+  } else {
+    await alertSuccess('Recuperacao Concluida', summary)
+  }
 
   return { ok: true, recovered: recovered.length, skipped: skipped.length, failed: failed.length, details: { recovered, skipped, failed } }
 }

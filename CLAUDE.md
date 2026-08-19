@@ -166,10 +166,20 @@ alerta mudo e indistinguivel de "esta tudo bem".
 
 Classificacao atual das funcoes exportadas:
 
-- `alertError` : **alerta** (pipeline ERRO, frete IGNORADO, confirmacao falhou, restart falhou)
+- `alertError` : **alerta** (pipeline ERRO, confirmacao falhou, confirmacoes ainda pendentes
+  depois do retry, restart falhou, frete IGNORADO por dado nao cadastrado)
 - `alertWithAction` : **alerta** (existe pra alguem CLICAR: zombie detectado, evolution reiniciado)
-- `alertSuccess` : **log** (recuperacao concluida)
-- `alertWarning` : **log** (retry do Gemini se auto-recupera; confirmacoes pendentes ja pingaram antes via `alertError`)
+- `alertSuccess` : **log** (recuperacao concluida SEM falha)
+- `alertWarning` : **log** (retry do Gemini se auto-recupera; IGNORADO por `Not TICKET_FRETE`)
+
+O modo sai do RESULTADO, nao da funcao:
+
+- Recuperacao com `failed.length > 0` vai por `alertError`, nao por `alertSuccess`: mensagem
+  que nao voltou e frete que nunca entra no sistema.
+- `Frete IGNORADO` classifica pelo MOTIVO: `Not TICKET_FRETE` e rotina (todo comprovante de
+  abastecimento passa por IGNORADO ate o cron de 15min reconhecer o S-10), enquanto grupo,
+  terminal ou data nao reconhecidos precisam de alguem pra cadastrar/corrigir. Spam de ping e
+  o que faz o canal ser silenciado, e canal silenciado engole o alerta de verdade junto.
 
 Dois detalhes que nao sao opcionais:
 
@@ -179,11 +189,23 @@ Dois detalhes que nao sao opcionais:
 2. Mencao so pinga no campo `content` do topo. `<@id>` dentro de `embeds` NAO pinga. Como todo
    alerta daqui e embed, o ping vai no content acima do embed.
 
+Post recusado nao pode passar por entregue: 4xx/5xx resolvem o `fetch` sem lancar, entao
+`postDiscord` checa o status, loga `http=<status>` e LANCA. Webhook rotacionado (404), rate
+limit (429) ou payload invalido (400) apareciam como sucesso e deixavam o parque mudo com
+aparencia de saudavel. `postDiscord` tambem corta o embed nos limites do Discord (title 256,
+description 4096, field value 1024, footer 2048) antes de enviar: acima disso volta 400 e o
+alerta grande some calado.
+
 Check (nao posta em Discord nenhum, stuba `fetch` e inspeciona o payload):
 
 ```bash
 npm run check:alerting     # ou: node services/alerting.check.js
 ```
+
+Alem da regra de mencao, o check e gate de duas coisas: os status 400/401/404/429/500 tem que
+falhar de forma observavel, e a varredura do REPO INTEIRO (nao um diretorio, nao lista escrita
+a mao) reprova qualquer arquivo fora de `services/alerting.js` que fale com o Discord por
+fora: URL de webhook, `process.env.*DISCORD*` ou `allowed_mentions` montado a mao.
 
 ### Endpoints
 - `POST /api/tp/webhook` : Evolution webhook (v2-02 OCR pipeline)

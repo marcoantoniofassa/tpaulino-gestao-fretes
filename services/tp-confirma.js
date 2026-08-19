@@ -61,7 +61,7 @@ let _lastAlertedIds = ''
 export async function retryFailedConfirmacoes() {
   const db = await import('./supabase.js')
   const { GROUP_MOTORISTA, MOTORISTAS } = await import('./config.js')
-  const { alertWarning } = await import('./alerting.js')
+  const { alertError } = await import('./alerting.js')
 
   // Find fretes with failed confirmation (status OK only, skip INVALIDO etc)
   const fretes = await db.query('tp_fretes',
@@ -109,7 +109,10 @@ export async function retryFailedConfirmacoes() {
   const currentIds = failedIds.sort().join(',')
   if (fail > 0 && currentIds !== _lastAlertedIds) {
     _lastAlertedIds = currentIds
-    alertWarning('Confirmacoes pendentes', `${fail} confirmacoes falhando.\nIDs: ${failedIds.map(id => id.slice(0, 8)).join(', ')}`)
+    // Falha PERSISTENTE: ja esgotou 3 tentativas inline no pipeline e mais uma rodada
+    // do cron. O motorista nao recebeu a confirmacao e ninguem vai recuperar sozinho:
+    // e alerta, nao rotina. So dispara quando o conjunto de IDs muda (dedup acima).
+    alertError('Confirmacoes pendentes', `${fail} confirmacoes falhando apos retry.\nIDs: ${failedIds.map(id => id.slice(0, 8)).join(', ')}`)
   }
 }
 

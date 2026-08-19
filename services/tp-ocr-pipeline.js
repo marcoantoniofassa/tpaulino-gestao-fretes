@@ -5,7 +5,7 @@ import * as db from './supabase.js'
 import { ocrTicket } from './gemini-ocr.js'
 import { applyBusinessRules } from './business-rules.js'
 import { confirmaFrete } from './tp-confirma.js'
-import { alertError } from './alerting.js'
+import { alertError, alertWarning } from './alerting.js'
 
 // Express route handler: POST /api/tp/webhook
 export function mountOcrWebhook(app) {
@@ -78,9 +78,17 @@ export async function processWebhookMessage(body) {
         status: 'IGNORADO',
         ocr_resultado: ocr,
       })
-      // Alert Marco when a ticket is ignored by business rules
+      // Classifica pelo MOTIVO, que e onde a informacao existe.
+      // 'Not TICKET_FRETE' e ROTINA, nao erro: todo comprovante de abastecimento passa
+      // obrigatoriamente por IGNORADO ate o cron de 15min do tp-abastecimento reconhecer
+      // o S-10. Pingar isso e spam diario, e spam faz o canal ser silenciado de novo.
+      // Os outros motivos sao dado que o sistema nao soube tratar (grupo/terminal nao
+      // cadastrado, data fora da janela): alguem precisa corrigir, entao pinga.
       const motorista = GROUP_MOTORISTA[msg.chat_jid]?.motorista || msg.chat_jid
-      alertError('Frete IGNORADO', `Motorista: ${motorista}\nContainer: ${ocr.CONTAINER || 'N/A'}\nMotivo: ${frete.erro_validacao}\nMsg: ${msg.msg_id}`)
+      const rotina = String(frete.erro_validacao || '').startsWith('Not TICKET_FRETE')
+      const detalheIgnorado = `Motorista: ${motorista}\nContainer: ${ocr.CONTAINER || 'N/A'}\nMotivo: ${frete.erro_validacao}\nMsg: ${msg.msg_id}`
+      if (rotina) alertWarning('Frete IGNORADO (nao e ticket de frete)', detalheIgnorado)
+      else alertError('Frete IGNORADO', detalheIgnorado)
       return
     }
 
