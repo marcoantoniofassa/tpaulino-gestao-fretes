@@ -137,6 +137,8 @@ All OCR processing, healthcheck, abastecimento and confirmation now run inside t
 ```
 services/
 ├── config.js              # Env vars, UUIDs, constants, group mapping
+├── alerting.js            # Discord (alerta x log) + fallback WhatsApp. Dono da regra de mencao
+├── alerting.check.js      # Autoteste da regra de mencao (node services/alerting.check.js)
 ├── supabase.js            # Supabase REST API helpers
 ├── evolution.js           # Evolution API helpers
 ├── gemini-ocr.js          # Gemini 2.5 Flash-Lite OCR (ticket + abastecimento)
@@ -149,6 +151,61 @@ services/
 ├── tp-zombie-monitor.js   # Zombie socket detection + restart + recovery (human-in-the-loop)
 └── tp-crons.js            # Initialize all scheduled jobs
 ```
+
+### Alertas Discord: modo `alerta` x modo `log`
+
+`services/alerting.js` e o **ponto de passagem unico** do Discord. Todo post sai por
+`postDiscord(mode, embed)` e o modo e OBRIGATORIO: sem modo, ou com modo invalido, a funcao
+LANCA em vez de assumir default. Default silencioso e como o parque de alerta fica mudo, e
+alerta mudo e indistinguivel de "esta tudo bem".
+
+| Modo | Quando | content do topo | allowed_mentions |
+|------|--------|-----------------|------------------|
+| `alerta` | erro de verdade, quebrou/parou/falhou, precisa de acao humana | `<@834406885309546568>` | `{ parse: [], users: ["834406885309546568"] }` |
+| `log` | rotina, sucesso, recuperacao, informativo, metrica | sem mencao | `{ parse: [] }` |
+
+Classificacao atual das funcoes exportadas:
+
+- `alertError` : **alerta** (pipeline ERRO, confirmacao falhou, confirmacoes ainda pendentes
+  depois do retry, restart falhou, frete IGNORADO por dado nao cadastrado)
+- `alertWithAction` : **alerta** (existe pra alguem CLICAR: zombie detectado, evolution reiniciado)
+- `alertSuccess` : **log** (recuperacao concluida SEM falha)
+- `alertWarning` : **log** (retry do Gemini se auto-recupera; IGNORADO por `Not TICKET_FRETE`)
+
+O modo sai do RESULTADO, nao da funcao:
+
+- Recuperacao com `failed.length > 0` vai por `alertError`, nao por `alertSuccess`: mensagem
+  que nao voltou e frete que nunca entra no sistema.
+- `Frete IGNORADO` classifica pelo MOTIVO: `Not TICKET_FRETE` e rotina (todo comprovante de
+  abastecimento passa por IGNORADO ate o cron de 15min reconhecer o S-10), enquanto grupo,
+  terminal ou data nao reconhecidos precisam de alguem pra cadastrar/corrigir. Spam de ping e
+  o que faz o canal ser silenciado, e canal silenciado engole o alerta de verdade junto.
+
+Dois detalhes que nao sao opcionais:
+
+1. `parse: []` vai nos DOIS modos. Sozinho ele mata `@everyone`/`@here` que venha em texto de
+   terceiro (nome de motorista, corpo de erro de API, saida do OCR). O par `parse: [] + users: [id]`
+   e o unico jeito de bloquear `@everyone` e ainda deixar passar o ping que importa.
+2. Mencao so pinga no campo `content` do topo. `<@id>` dentro de `embeds` NAO pinga. Como todo
+   alerta daqui e embed, o ping vai no content acima do embed.
+
+Post recusado nao pode passar por entregue: 4xx/5xx resolvem o `fetch` sem lancar, entao
+`postDiscord` checa o status, loga `http=<status>` e LANCA. Webhook rotacionado (404), rate
+limit (429) ou payload invalido (400) apareciam como sucesso e deixavam o parque mudo com
+aparencia de saudavel. `postDiscord` tambem corta o embed nos limites do Discord (title 256,
+description 4096, field value 1024, footer 2048) antes de enviar: acima disso volta 400 e o
+alerta grande some calado.
+
+Check (nao posta em Discord nenhum, stuba `fetch` e inspeciona o payload):
+
+```bash
+npm run check:alerting     # ou: node services/alerting.check.js
+```
+
+Alem da regra de mencao, o check e gate de duas coisas: os status 400/401/404/429/500 tem que
+falhar de forma observavel, e a varredura do REPO INTEIRO (nao um diretorio, nao lista escrita
+a mao) reprova qualquer arquivo fora de `services/alerting.js` que fale com o Discord por
+fora: URL de webhook, `process.env.*DISCORD*` ou `allowed_mentions` montado a mao.
 
 ### Endpoints
 - `POST /api/tp/webhook` : Evolution webhook (v2-02 OCR pipeline)
