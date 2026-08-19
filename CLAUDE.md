@@ -137,6 +137,8 @@ All OCR processing, healthcheck, abastecimento and confirmation now run inside t
 ```
 services/
 ├── config.js              # Env vars, UUIDs, constants, group mapping
+├── alerting.js            # Discord (alerta x log) + fallback WhatsApp. Dono da regra de mencao
+├── alerting.check.js      # Autoteste da regra de mencao (node services/alerting.check.js)
 ├── supabase.js            # Supabase REST API helpers
 ├── evolution.js           # Evolution API helpers
 ├── gemini-ocr.js          # Gemini 2.5 Flash-Lite OCR (ticket + abastecimento)
@@ -148,6 +150,39 @@ services/
 ├── tp-abastecimento.js    # v2-08: auto abastecimento OCR (15min cron)
 ├── tp-zombie-monitor.js   # Zombie socket detection + restart + recovery (human-in-the-loop)
 └── tp-crons.js            # Initialize all scheduled jobs
+```
+
+### Alertas Discord: modo `alerta` x modo `log`
+
+`services/alerting.js` e o **ponto de passagem unico** do Discord. Todo post sai por
+`postDiscord(mode, embed)` e o modo e OBRIGATORIO: sem modo, ou com modo invalido, a funcao
+LANCA em vez de assumir default. Default silencioso e como o parque de alerta fica mudo, e
+alerta mudo e indistinguivel de "esta tudo bem".
+
+| Modo | Quando | content do topo | allowed_mentions |
+|------|--------|-----------------|------------------|
+| `alerta` | erro de verdade, quebrou/parou/falhou, precisa de acao humana | `<@834406885309546568>` | `{ parse: [], users: ["834406885309546568"] }` |
+| `log` | rotina, sucesso, recuperacao, informativo, metrica | sem mencao | `{ parse: [] }` |
+
+Classificacao atual das funcoes exportadas:
+
+- `alertError` : **alerta** (pipeline ERRO, frete IGNORADO, confirmacao falhou, restart falhou)
+- `alertWithAction` : **alerta** (existe pra alguem CLICAR: zombie detectado, evolution reiniciado)
+- `alertSuccess` : **log** (recuperacao concluida)
+- `alertWarning` : **log** (retry do Gemini se auto-recupera; confirmacoes pendentes ja pingaram antes via `alertError`)
+
+Dois detalhes que nao sao opcionais:
+
+1. `parse: []` vai nos DOIS modos. Sozinho ele mata `@everyone`/`@here` que venha em texto de
+   terceiro (nome de motorista, corpo de erro de API, saida do OCR). O par `parse: [] + users: [id]`
+   e o unico jeito de bloquear `@everyone` e ainda deixar passar o ping que importa.
+2. Mencao so pinga no campo `content` do topo. `<@id>` dentro de `embeds` NAO pinga. Como todo
+   alerta daqui e embed, o ping vai no content acima do embed.
+
+Check (nao posta em Discord nenhum, stuba `fetch` e inspeciona o payload):
+
+```bash
+npm run check:alerting     # ou: node services/alerting.check.js
 ```
 
 ### Endpoints
