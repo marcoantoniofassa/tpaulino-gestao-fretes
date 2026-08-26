@@ -32,7 +32,7 @@ export function useGastos(filters?: GastosFilter) {
       .select('*, tp_veiculos(id, placa), tp_gasto_parcelas(*)')
       .order('data', { ascending: false })
       .order('created_at', { ascending: false })
-      .limit(200)
+      .limit(1000) // ponytail: teto folgado (base inteira = 181 linhas). Paginar se um mes passar disso.
 
     if (filters?.tipo) {
       query = query.eq('tipo', filters.tipo)
