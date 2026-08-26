@@ -27,7 +27,7 @@ export function GastosPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('todos')
   const [mes, setMes] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`)
   const [weekDate, setWeekDate] = useState(new Date())
-  const [statusFilter, setStatusFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('PENDENTE')
   const [tipoFilter, setTipoFilter] = useState('')
 
   const weekRange = useMemo(() => getWeekRange(weekDate), [weekDate])
@@ -38,17 +38,22 @@ export function GastosPage() {
         tipo: 'ABASTECIMENTO',
         semanaInicio: weekRange.inicio,
         semanaFim: weekRange.fim,
-        ...(statusFilter ? { status: statusFilter } : {}),
       }
     }
     return {
       mes,
-      ...(statusFilter ? { status: statusFilter } : {}),
       ...(tipoFilter ? { tipo: tipoFilter } : {}),
     }
-  }, [viewMode, mes, weekRange.inicio, weekRange.fim, statusFilter, tipoFilter])
+  }, [viewMode, mes, weekRange.inicio, weekRange.fim, tipoFilter])
 
   const { gastos, loading } = useGastos(filters)
+
+  // ponytail: status filtra a lista aqui, nao na query, pra os cards de resumo continuarem
+  // somando o periodo inteiro. Diesel ignora status (todo abastecimento ja nasce PAGO).
+  const gastosVisiveis = useMemo(
+    () => (viewMode === 'diesel' || !statusFilter ? gastos : gastos.filter(g => g.status === statusFilter)),
+    [gastos, statusFilter, viewMode]
+  )
 
   const mesLabel = new Date(mes + '-01T12:00:00').toLocaleDateString('pt-BR', {
     month: 'long',
@@ -232,29 +237,6 @@ export function GastosPage() {
         </div>
       )}
 
-      {/* Status filter pills for diesel view */}
-      {viewMode === 'diesel' && (
-        <div className="flex gap-2 mb-4">
-          {[
-            { value: '', label: 'Todos' },
-            { value: 'PENDENTE', label: 'Pendentes' },
-            { value: 'PAGO', label: 'Pagos' },
-          ].map(opt => (
-            <button
-              key={opt.value}
-              onClick={() => setStatusFilter(opt.value)}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                statusFilter === opt.value
-                  ? 'bg-green-600 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      )}
-
       {/* Form (only in Todos view) */}
       {viewMode === 'todos' && (
         <div className="mb-4">
@@ -265,7 +247,7 @@ export function GastosPage() {
       {/* List */}
       {loading ? (
         <Spinner />
-      ) : gastos.length === 0 ? (
+      ) : (viewMode === 'diesel' ? gastos : gastosVisiveis).length === 0 ? (
         <div className="text-center py-12 text-slate-400">
           {viewMode === 'diesel' ? (
             <>
@@ -275,7 +257,9 @@ export function GastosPage() {
           ) : (
             <>
               <Receipt size={32} className="mx-auto mb-2 opacity-40" />
-              <p className="text-sm">Nenhuma despesa encontrada</p>
+              <p className="text-sm">
+                {statusFilter === 'PENDENTE' ? 'Nenhuma despesa pendente' : 'Nenhuma despesa encontrada'}
+              </p>
             </>
           )}
         </div>
@@ -308,7 +292,7 @@ export function GastosPage() {
       ) : (
         /* Todos view: flat list */
         <div className="flex flex-col gap-3">
-          {gastos.map(g => (
+          {gastosVisiveis.map(g => (
             <GastoCard key={g.id} gasto={g} />
           ))}
         </div>

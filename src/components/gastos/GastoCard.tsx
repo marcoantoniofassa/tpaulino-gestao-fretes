@@ -199,7 +199,9 @@ export function GastoCard({ gasto }: GastoCardProps) {
             </button>
           </div>
           {/* Toggle status (only for simple gastos without parcelas) */}
-          {!temParcelas && (
+          {/* Diesel nao tem baixa: a ISIS desconta no acerto do frete. Sem esconder o toggle,
+              "Desfazer" devolve o abastecimento pra fila e ele some das Despesas do Dashboard. */}
+          {!temParcelas && gasto.tipo !== 'ABASTECIMENTO' && (
             <button
               onClick={handleToggleStatus}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${

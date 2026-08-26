@@ -223,7 +223,8 @@ export function processAbastecimento(ocr, chatJid) {
   return {
     tipo: 'ABASTECIMENTO',
     forma_pagamento: 'CARTAO_FROTA',
-    status: 'PENDENTE',
+    // Diesel nasce PAGO: a ISIS desconta no acerto do frete, nao existe baixa manual
+    status: 'PAGO',
     veiculo_id,
     litros,
     preco_litro: precoLitro,

@@ -32,7 +32,7 @@ export function useGastos(filters?: GastosFilter) {
       .select('*, tp_veiculos(id, placa), tp_gasto_parcelas(*)')
       .order('data', { ascending: false })
       .order('created_at', { ascending: false })
-      .limit(200)
+      .limit(1000) // ponytail: teto folgado (base inteira = 181 linhas). Paginar se um mes passar disso.
 
     if (filters?.tipo) {
       query = query.eq('tipo', filters.tipo)
@@ -125,6 +125,8 @@ export async function createGasto(
       data: gasto.data,
       tipo: gasto.tipo,
       valor: gasto.valor,
+      // Diesel nasce PAGO: a ISIS desconta no acerto do frete, nao existe baixa manual
+      status: gasto.tipo === 'ABASTECIMENTO' ? 'PAGO' : 'PENDENTE',
       veiculo_id: gasto.veiculo_id || null,
       descricao: gasto.descricao || null,
       vencimento: gasto.vencimento || null,
