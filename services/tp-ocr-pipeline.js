@@ -205,8 +205,30 @@ export async function processWebhookMessage(body) {
   }
 }
 
-// Also used by safety-net for reprocessing
+// Also used by safety-net for reprocessing.
+//
+// Wrapper que garante que a linha nunca fica presa em PROCESSANDO. O corpo marca
+// PROCESSANDO antes do OCR; se o Gemini der 500/timeout, ou o INSERT falhar, a excecao
+// subia e a raw ficava PROCESSANDO PARA SEMPRE — o safety-net so procura PENDENTE e ERRO,
+// entao aquela mensagem nunca mais era tentada e sumia calada. `tentativas` ja tinha sido
+// incrementado, entao o dead-letter tambem nao a via.
 export async function reprocessRawRecord(record) {
+  try {
+    return await reprocessRawRecordInterno(record)
+  } catch (err) {
+    // Devolve pra ERRO pra continuar elegivel ao safety-net (que respeita tentativas < 3,
+    // entao isto nao vira laco infinito). Best-effort: se ate o PATCH falhar, o erro
+    // original e que tem que subir.
+    const rawFilter = `msg_id=eq.${record.msg_id}&chat_jid=eq.${encodeURIComponent(record.chat_jid)}`
+    await db.patch('tp_mensagens_raw', rawFilter, {
+      status: 'ERRO',
+      erro_detalhe: String(err?.message || err).substring(0, 1000),
+    }).catch(() => {})
+    throw err
+  }
+}
+
+async function reprocessRawRecordInterno(record) {
   const msg = {
     msg_id: record.msg_id,
     chat_jid: record.chat_jid,

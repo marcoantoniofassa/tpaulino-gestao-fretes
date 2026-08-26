@@ -2,7 +2,7 @@
 // Cron: */5 * * * * (every 5 minutes, business hours)
 // Detects zombie Evolution connections, proposes restart + recovery via Discord action links
 import crypto from 'crypto'
-import { fetchInstances, sendTextProbe, findMessages, getBase64FromMedia } from './evolution.js'
+import { fetchInstances, probeConnectionState, findMessages, getBase64FromMedia } from './evolution.js'
 import { processWebhookMessage } from './tp-ocr-pipeline.js'
 import { alertWithAction, alertSuccess, alertError } from './alerting.js'
 import * as db from './supabase.js'
@@ -184,7 +184,7 @@ export async function runZombieMonitor() {
         if (gapHours > 1) {
           // Suspicious gap: confirm with probe to distinguish zombie FULL vs RECEIVE-ONLY
           console.log(`[ZombieMonitor] Gap=${gapHours.toFixed(1)}h. Running probe...`)
-          const probe = await sendTextProbe()
+          const probe = await probeConnectionState()
 
           if (!probe.ok) {
             // Zombie FULL: send path also broken
@@ -229,14 +229,15 @@ export async function runZombieMonitor() {
         state.lastHealthyAt = Date.now()
       }
     } else {
-      // Before 8am: just run a quick probe to verify connection.
-      // A sonda so testa ENVIO, e o modo de falha desta instancia e RECEIVE-ONLY: sendText
-      // passa o zumbi inteiro. Por isso probe OK NAO marca lastHealthyAt — marcar seria
-      // apagar, toda madrugada, o marco de inicio do zumbi que a recuperacao usa como
-      // janela. Em 26/08/2026 o zumbi comecou 10:28 do dia anterior e as 07:55 este ramo
-      // ainda carimbava "saudavel agora". Zerar consecutiveFailures continua certo: o
-      // caminho de envio esta mesmo de pe.
-      const probe = await sendTextProbe()
+      // Before 8am: so da pra checar o estado da conexao, sem gap pra comparar.
+      // A sonda NAO envia nada: e um GET connectionState que aprova em 'open' — e 'open'
+      // e justamente o valor que fica verde durante TODO o zumbi receive-only (no
+      // incidente de 25-26/08 ficou 'open' as 21h de silencio). Por isso ela NAO marca
+      // lastHealthyAt: carimbar saude com esse sinal apagava, toda madrugada, o marco de
+      // inicio do zumbi que a recuperacao usa como janela. As 07:55 daquele dia este ramo
+      // ainda dizia "saudavel agora" com o zumbi correndo desde as 10:28 do dia anterior.
+      // Zerar consecutiveFailures continua certo: o contador e sobre a sonda falhar.
+      const probe = await probeConnectionState()
       if (probe.ok) {
         state.consecutiveFailures = 0
       } else {
@@ -255,8 +256,14 @@ export async function runZombieMonitor() {
       // marco de saude pra frente a cada 5min enquanto o zumbi ja estava em curso.
       // Consequencia real: `zombieStartTime` (= lastHealthyAt) entra na janela de
       // executeRecovery, entao a janela encolhia calada e a recuperacao procurava
-      // mensagem so a partir de agora. Quem marca saude sao os DOIS pontos acima onde
-      // houve RECEBIMENTO recente de verdade (gap <= 1h, e gap < GAP_SUSPECT_HOURS).
+      // mensagem so a partir de agora.
+      //
+      // Quem marca saude sao os pontos acima que olham MENSAGEM CHEGANDO: gap <= 1h, e
+      // gap < GAP_SUSPECT_HOURS. Nao chame isso de "recebimento recente" sem ressalva: o
+      // segundo aceita ate 4h de silencio, e ha ainda o ramo "nenhuma mensagem no banco",
+      // que marca saude sem mensagem alguma. Sao aproximacoes conscientes; o que nao pode
+      // e marcar saude a partir de sinal que NAO olha recebimento (estado da conexao).
+      // A confirmacao do zumbi nao depende disto: ela sai de gapHours >= GAP_CRITICAL.
       return
     }
 
@@ -384,7 +391,7 @@ export async function executeRestart(token) {
     let reconnected = false
     for (let i = 0; i < 3; i++) {
       try {
-        const probe = await sendTextProbe()
+        const probe = await probeConnectionState()
         if (probe.ok) {
           reconnected = true
           state.lastHealthyAt = Date.now()
@@ -456,9 +463,11 @@ export async function executeRecovery(token) {
   const PAGINA = 100
   const truncados = []        // grupo que encheu a pagina: pode haver mais que nao vimos
   const porGrupo = {}         // cobertura POR GRUPO: agregado esconde grupo cego
+  const maisAntigaPorGrupo = {} // quao TARDE cada grupo comeca: o agregado tambem esconde isso
 
   for (const jid of groupJids) {
     porGrupo[jid] = 0
+    maisAntigaPorGrupo[jid] = null
     try {
       const result = await findMessages({
         key: { remoteJid: jid },
@@ -482,6 +491,7 @@ export async function executeRecovery(token) {
         const ts = Number(m.messageTimestamp) || 0
         if (ts > 0) {
           if (storeMaisAntigaTs === null || ts < storeMaisAntigaTs) storeMaisAntigaTs = ts
+          if (maisAntigaPorGrupo[jid] === null || ts < maisAntigaPorGrupo[jid]) maisAntigaPorGrupo[jid] = ts
         } else {
           semTimestamp++
         }
@@ -492,16 +502,24 @@ export async function executeRecovery(token) {
 
         // Dedup: a UNIQUE e (msg_id, chat_jid), entao filtrar so por msg_id pula uma
         // mensagem legitima de OUTRO grupo que por acaso tenha o mesmo id.
+        let jaExiste
         try {
           const existing = await db.query(
             'tp_mensagens_raw',
             `select=msg_id&msg_id=eq.${msgId}&chat_jid=eq.${encodeURIComponent(jid)}&limit=1`
           )
-          if (existing.length > 0) {
-            skipped.push({ msg_id: msgId, jid })
-            continue
-          }
-        } catch {}
+          jaExiste = existing.length > 0
+        } catch (dedupErr) {
+          // `catch {}` vazio aqui virava "a raw nao existe" quando na verdade o banco caiu.
+          // O resultado operacional saia falso: a UNIQUE ainda barrava a duplicata, mas o
+          // motivo real (Supabase fora) desaparecia do relatorio.
+          failed.push({ msg_id: msgId, jid, reason: `dedup falhou: ${dedupErr.message}` })
+          continue
+        }
+        if (jaExiste) {
+          skipped.push({ msg_id: msgId, jid })
+          continue
+        }
 
         // Get base64
         let base64 = m.message?.base64 || ''
@@ -610,7 +628,17 @@ export async function executeRecovery(token) {
     `**Ja existiam (dedup):** ${skipped.length}`,
     `**Falharam:** ${failed.length}`,
     `**Fotos no store da Evolution na janela (${cobertura.janelaHoras.toFixed(1)}h):** ${storeImagens}`,
-    `**Por grupo:** ${Object.entries(porGrupo).map(([jid, n]) => `${GROUP_MOTORISTA[jid]?.motorista || jid}: ${n}`).join(', ')}`,
+    // Contagem E quao tarde cada grupo comeca. So a foto mais antiga AGREGADA nao serve:
+    // uma foto de um motorista no comeco da janela fazia a cobertura inteira parecer boa
+    // enquanto outro grupo podia ter 19h descobertas. Isto e informacao pro humano, nao
+    // veredito: num zumbi de 21h e normal um motorista comecar tarde (folga, turno), entao
+    // transformar atraso em alarme deixaria o alerta vermelho SEMPRE, que e o mesmo que mudo.
+    `**Por grupo (fotos | comeca depois de):** ${Object.entries(porGrupo).map(([jid, n]) => {
+      const nome = GROUP_MOTORISTA[jid]?.motorista || jid
+      const ts = maisAntigaPorGrupo[jid]
+      const atraso = ts ? `+${((ts - startTs) / 3600).toFixed(1)}h` : '-'
+      return `${nome}: ${n} | ${atraso}`
+    }).join(', ')}`,
     gruposVaziosLista.length > 0 ? `**Grupo sem NENHUMA foto na janela:** ${gruposVaziosLista.join(', ')} (pode ser folga do motorista ou store cego naquele grupo: daqui nao da pra distinguir)` : '',
     semTimestamp > 0 ? `**Fotos sem timestamp legivel:** ${semTimestamp} (nao da pra dizer onde a cobertura comeca)` : '',
     truncados.length > 0 ? `**Pagina cheia (pode ter sido cortada, teto ${PAGINA}):** ${truncados.map(j => GROUP_MOTORISTA[j]?.motorista || j).join(', ')}` : '',

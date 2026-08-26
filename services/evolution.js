@@ -76,7 +76,14 @@ export async function getBase64FromMedia(messageData) {
 }
 
 // Check connection state via API (no message sent)
-export async function sendTextProbe() {
+// ATENCAO: isto NAO envia mensagem nenhuma, apesar do nome antigo (`sendTextProbe`).
+// E um GET /instance/connectionState que aprova quando o estado e 'open'. Renomeada em
+// 26/08/2026 porque o nome antigo sustentava uma crenca perigosa: que "probe OK" provava
+// que o caminho de ENVIO estava vivo. Nao prova, e pior — `open` e exatamente o valor que
+// fica verde durante TODO o zumbi receive-only (medido no incidente de 25-26/08: status
+// `open` as 21h de silencio). Quem quiser prova de recebimento tem que olhar mensagem
+// chegando, nao estado de conexao.
+export async function probeConnectionState() {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 10000)
   try {

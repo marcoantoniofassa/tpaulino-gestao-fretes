@@ -148,15 +148,25 @@ async function main() {
   if (args.skip.size > 0) console.log(`Skip explicito: ${[...args.skip].join(', ')}`)
 
   let candidates = []
+  // Grupo que falha no daemon NAO pode virar so uma linha de log. Antes, se o unico grupo
+  // com ticket perdido desse erro e os outros viessem vazios, a saida era
+  // "Candidatos: 0 / Nada a fazer" com exit 0 — perda silenciosa exatamente no caminho
+  // usado como rede de seguranca. O cron do hub le o exit code e o Resumo, entao silencio
+  // aqui vira silencio no Discord.
+  const gruposComFalha = []
   for (const [name, jid] of Object.entries(GROUPS)) {
     try {
       const imgs = await fetchDaemonMessages(jid, args)
       candidates.push(...imgs)
     } catch (err) {
       console.error(`Daemon falhou ${name}:`, err.message)
+      gruposComFalha.push(`${name}: ${err.message}`)
     }
   }
   console.log(`Candidatos no daemon: ${candidates.length}`)
+  if (gruposComFalha.length > 0) {
+    console.error(`Grupos NAO consultados: ${gruposComFalha.length} (${gruposComFalha.join('; ')})`)
+  }
 
   candidates = candidates.filter(c => !args.skip.has(c.msg_id))
 
@@ -177,6 +187,12 @@ async function main() {
 
   if (args.dryRun || toReplay.length === 0) {
     console.log(args.dryRun ? 'DRY-RUN: nada enviado.' : 'Nada a fazer.')
+    // Mesmo sem nada a replicar, grupo nao consultado e falha: sair 0 aqui diria
+    // "olhei tudo e estava tudo certo", que e mentira.
+    if (gruposComFalha.length > 0) {
+      console.log(`\nResumo: ok=0 fail=${gruposComFalha.length} skip_dedup=${dedupSkipped} skip_explicito=${args.skip.size} grupos_falhos=${gruposComFalha.length}`)
+      process.exit(1)
+    }
     return
   }
 
@@ -198,8 +214,38 @@ async function main() {
     await new Promise(r => setTimeout(r, 3000))
   }
 
-  console.log(`\nResumo: ok=${ok} fail=${fail} skip_dedup=${dedupSkipped} skip_explicito=${args.skip.size}`)
-  process.exit(fail > 0 ? 1 : 0)
+  // O webhook responde 200 ANTES de processar (ack rapido pra Evolution), entao o 200 so
+  // prova que a requisicao chegou. Confirmar de verdade e ir ao banco ver em que estado a
+  // linha parou. Sem isto, OCR que falhou saia como "ok=1 fail=0" e o cron do hub
+  // anunciava recuperacao que nao aconteceu.
+  let confirmados = 0
+  if (ok > 0) {
+    await new Promise(r => setTimeout(r, 15000)) // folga pro pipeline async terminar
+    try {
+      const enviados = toReplay.map(i => i.msg_id)
+      const inList = enviados.map(id => `"${id}"`).join(',')
+      const url = `${SB_URL}/rest/v1/tp_mensagens_raw?msg_id=in.(${encodeURIComponent(inList)})&select=msg_id,chat_jid,status`
+      const r = await fetch(url, { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } })
+      if (r.ok) {
+        const rows = await r.json()
+        const bons = new Set(rows.filter(x => x.status === 'OK' || x.status === 'IGNORADO')
+          .map(x => chaveRaw(x.msg_id, x.chat_jid)))
+        confirmados = toReplay.filter(i => bons.has(chaveRaw(i.msg_id, i.chat_jid))).length
+        const pendentes = rows.filter(x => x.status !== 'OK' && x.status !== 'IGNORADO')
+        if (pendentes.length > 0) {
+          console.error(`NAO confirmados no banco: ${pendentes.map(x => `${x.msg_id.slice(0,12)}=${x.status}`).join(', ')}`)
+        }
+      } else {
+        console.error(`Confirmacao no banco falhou: ${r.status}`)
+      }
+    } catch (err) {
+      console.error('Confirmacao no banco falhou:', err.message)
+    }
+  }
+
+  const naoConfirmados = ok - confirmados
+  console.log(`\nResumo: ok=${ok} fail=${fail} confirmados=${confirmados} nao_confirmados=${naoConfirmados} skip_dedup=${dedupSkipped} skip_explicito=${args.skip.size} grupos_falhos=${gruposComFalha.length}`)
+  process.exit((fail > 0 || naoConfirmados > 0 || gruposComFalha.length > 0) ? 1 : 0)
 }
 
 export { GROUPS }
