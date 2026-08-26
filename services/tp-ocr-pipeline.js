@@ -32,6 +32,22 @@ export function mountOcrWebhook(app) {
   })
 }
 
+// A Evolution REENTREGA mensagem no reconnect (replay do Baileys), entao a mesma msg_id
+// chega de novo depois que ja foi processada. O INSERT bate na UNIQUE(msg_id, chat_jid),
+// e ate 26/08/2026 isso caia no catch generico: alerta falso no Discord e, pior, PATCH
+// marcando ERRO a linha que estava OK. Dai o safety-net das 06:00 (que reprocessa ERRO)
+// pagava OCR de novo. Nao chegava a duplicar frete — o reprocessRawRecord ja deduplica
+// por frete_id e por container+data — mas o painel mostrava ERRO no que deu certo.
+// Pura e exportada pra ter check: e a regra que distingue "chegou duas vezes" (rotina)
+// de "quebrou" (incidente), e confundir as duas foi o defeito.
+export function isUniqueViolation(err) {
+  const m = String(err?.message || '')
+  return m.includes('23505') || m.includes('duplicate key value')
+}
+
+// Estados em que a linha ja teve desfecho: reentrega e ruido, nao ha o que refazer.
+const STATUS_TERMINAIS = new Set(['OK', 'IGNORADO', 'DUPLICADO'])
+
 // Main processing pipeline
 export async function processWebhookMessage(body) {
   // Step 1: Filter groups + image
@@ -40,17 +56,39 @@ export async function processWebhookMessage(body) {
 
   console.log(`[OCR] Processing ${msg.msg_id} from ${msg.chat_jid}`)
 
+  const rawFilter = `msg_id=eq.${msg.msg_id}&chat_jid=eq.${encodeURIComponent(msg.chat_jid)}`
+
   try {
     // Step 2: Insert raw record (PENDENTE)
-    const raw = await db.insert('tp_mensagens_raw', {
-      msg_id: msg.msg_id,
-      chat_jid: msg.chat_jid,
-      sender_jid: msg.sender_jid,
-      timestamp_msg: new Date(msg.timestamp * 1000).toISOString(),
-      media_base64: msg.base64,
-      caption: msg.caption,
-      status: 'PENDENTE',
-    })
+    try {
+      await db.insert('tp_mensagens_raw', {
+        msg_id: msg.msg_id,
+        chat_jid: msg.chat_jid,
+        sender_jid: msg.sender_jid,
+        timestamp_msg: new Date(msg.timestamp * 1000).toISOString(),
+        media_base64: msg.base64,
+        caption: msg.caption,
+        status: 'PENDENTE',
+      })
+    } catch (insertErr) {
+      if (!isUniqueViolation(insertErr)) throw insertErr
+
+      // Reentrega da Evolution. Se a linha ja teve desfecho, sair sem tocar em nada e
+      // sem alertar: refazer o OCR custaria Gemini a toa e sobrescreveria o resultado bom.
+      const [atual] = await db.query(
+        'tp_mensagens_raw',
+        `select=status&${rawFilter}&limit=1`,
+        'return=representation'
+      ).catch(() => [])
+      if (STATUS_TERMINAIS.has(atual?.status)) {
+        console.log(`[OCR] Reentrega ignorada (${msg.msg_id} ja esta ${atual.status})`)
+        return
+      }
+      // Linha existe mas ficou no meio do caminho (PENDENTE/PROCESSANDO/ERRO): a
+      // reentrega e uma segunda chance legitima, entao segue o fluxo e reaproveita o
+      // base64 que veio agora. Sem isso so o safety-net das 06:00 destravaria.
+      console.log(`[OCR] Reentrega de ${msg.msg_id} em ${atual?.status || 'desconhecido'}: reprocessando`)
+    }
 
     // Step 3: Upload image to storage
     const storagePath = `fotos/tickets/${msg.chat_jid}/${msg.msg_id}.jpg`
@@ -58,7 +96,6 @@ export async function processWebhookMessage(body) {
     await db.uploadStorage(storagePath, imageBuffer)
 
     // Step 4: Update raw -> PROCESSANDO (clear base64, save storage path)
-    const rawFilter = `msg_id=eq.${msg.msg_id}&chat_jid=eq.${encodeURIComponent(msg.chat_jid)}`
     await db.patch('tp_mensagens_raw', rawFilter, {
       status: 'PROCESSANDO',
       media_base64: null,
@@ -162,7 +199,6 @@ export async function processWebhookMessage(body) {
     alertError('Pipeline ERRO', `Motorista: ${motorista}\nMsg: ${msg.msg_id}\nErro: ${err.message}`)
     // Update raw -> ERRO
     try {
-      const rawFilter = `msg_id=eq.${msg.msg_id}&chat_jid=eq.${encodeURIComponent(msg.chat_jid)}`
       await db.patch('tp_mensagens_raw', rawFilter, {
         status: 'ERRO',
         erro_detalhe: err.message?.substring(0, 1000),

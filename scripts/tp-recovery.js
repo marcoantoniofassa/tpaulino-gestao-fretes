@@ -23,6 +23,7 @@
 // Exit codes: 0 sucesso, 1 erro fatal, 2 args invalidos.
 
 import { readFile } from 'node:fs/promises'
+import { pathToFileURL } from 'node:url'
 
 const DAEMON_URL = process.env.TP_DAEMON_URL || 'http://127.0.0.1:3847'
 const DAEMON_KEY = process.env.TP_DAEMON_KEY || 'sexta-feira-2026'
@@ -30,12 +31,20 @@ const SB_URL = process.env.TP_SUPABASE_URL
 const SB_KEY = process.env.TP_SUPABASE_KEY
 const WEBHOOK_URL = process.env.TP_WEBHOOK_URL || 'https://tpaulino-gestao-fretes-production.up.railway.app/api/tp/webhook'
 
-const GROUPS = {
-  ALESSANDRO: '120363039509825419@g.us',
-  RONALDO:    '120363314612881947@g.us',
-  CHRISTIAN:  '120363328619713776@g.us',
-  VALTER:     '120363027158529382@g.us',
-  LUIZ:       '120363406009484675@g.us',
+// Deriva do config.js em vez de manter lista propria. A lista paralela que existia aqui
+// tinha 5 grupos e o config tem 6: faltava o alias de grupo do Christian
+// ('120363423313474684@g.us'), entao a recuperacao nunca olhava aquele grupo e um zumbi
+// ali passaria em branco. Duas listas do mesmo fato divergem calado; uma so nao tem como.
+import { GROUP_MOTORISTA } from '../services/config.js'
+
+const GROUPS = {}
+for (const [jid, info] of Object.entries(GROUP_MOTORISTA)) {
+  // Motorista com 2 grupos (fixo + alias) vira MOTORISTA e MOTORISTA#2: a chave aqui e
+  // so rotulo de log, o que vale pra busca sao os JIDs, e todos precisam entrar.
+  let chave = info.motorista
+  let n = 2
+  while (GROUPS[chave]) chave = `${info.motorista}#${n++}`
+  GROUPS[chave] = jid
 }
 
 function parseArgs(argv) {
@@ -189,4 +198,12 @@ async function main() {
   process.exit(fail > 0 ? 1 : 0)
 }
 
-main().catch(err => { console.error('Fatal:', err); process.exit(1) })
+export { GROUPS }
+
+// So roda quando chamado direto na CLI. Sem esta guarda, `import` deste arquivo (o
+// check faz isso pra comparar os grupos com o config) DISPARARIA uma recuperacao de
+// verdade, postando ticket no webhook de producao a partir de um teste.
+const chamadoDireto = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+if (chamadoDireto) {
+  main().catch(err => { console.error('Fatal:', err); process.exit(1) })
+}

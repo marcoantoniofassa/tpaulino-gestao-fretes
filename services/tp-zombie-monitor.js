@@ -85,6 +85,20 @@ function formatTimeDiff(ms) {
   return `${hours}h${remaining > 0 ? remaining + 'min' : ''}`
 }
 
+// Veredito sobre a FONTE da recuperacao (store da Evolution), nao sobre o resultado.
+// Pura de proposito: e a regra que decide se o relatorio pode dizer "concluida", e regra
+// que mente sobre cobertura foi o defeito que deixou 3 zumbis passarem em branco.
+// `parcial` usa 1h de tolerancia porque o inicio da janela raramente coincide com uma
+// mensagem: o buraco so importa quando o store comeca BEM depois do inicio do zumbi.
+export function avaliarCoberturaStore({ storeImagens, storeMaisAntigaTs, startTs, agoraTs }) {
+  const janelaHoras = Math.max(0, (agoraTs - startTs) / 3600)
+  if (storeImagens === 0) {
+    return { cego: true, parcial: false, janelaHoras, buracoHoras: janelaHoras }
+  }
+  const buracoHoras = storeMaisAntigaTs ? Math.max(0, (storeMaisAntigaTs - startTs) / 3600) : 0
+  return { cego: false, parcial: buracoHoras > 1, janelaHoras, buracoHoras }
+}
+
 async function getLastMessageTime() {
   try {
     const rows = await db.query(
@@ -187,11 +201,16 @@ export async function runZombieMonitor() {
         state.lastHealthyAt = Date.now()
       }
     } else {
-      // Before 8am: just run a quick probe to verify connection
+      // Before 8am: just run a quick probe to verify connection.
+      // A sonda so testa ENVIO, e o modo de falha desta instancia e RECEIVE-ONLY: sendText
+      // passa o zumbi inteiro. Por isso probe OK NAO marca lastHealthyAt — marcar seria
+      // apagar, toda madrugada, o marco de inicio do zumbi que a recuperacao usa como
+      // janela. Em 26/08/2026 o zumbi comecou 10:28 do dia anterior e as 07:55 este ramo
+      // ainda carimbava "saudavel agora". Zerar consecutiveFailures continua certo: o
+      // caminho de envio esta mesmo de pe.
       const probe = await sendTextProbe()
       if (probe.ok) {
         state.consecutiveFailures = 0
-        state.lastHealthyAt = Date.now()
       } else {
         state.consecutiveFailures++
         if (state.consecutiveFailures >= 3) {
@@ -202,10 +221,14 @@ export async function runZombieMonitor() {
     }
 
     if (!zombieConfirmed) {
-      // No zombie detected
-      if (state.consecutiveFailures === 0) {
-        state.lastHealthyAt = Date.now()
-      }
+      // NAO marcar lastHealthyAt aqui. Este bloco roda tambem no caso "gap suspeito 4-6h
+      // com probe OK", que logo acima diz explicitamente "Intentionally do NOT reset
+      // lastHealthyAt here" — e este reset anulava aquele comentario, empurrando o
+      // marco de saude pra frente a cada 5min enquanto o zumbi ja estava em curso.
+      // Consequencia real: `zombieStartTime` (= lastHealthyAt) entra na janela de
+      // executeRecovery, entao a janela encolhia calada e a recuperacao procurava
+      // mensagem so a partir de agora. Quem marca saude sao os DOIS pontos acima onde
+      // houve RECEBIMENTO recente de verdade (gap <= 1h, e gap < GAP_SUSPECT_HOURS).
       return
     }
 
@@ -393,6 +416,14 @@ export async function executeRecovery(token) {
   const recovered = []
   const skipped = []
   const failed = []
+  // Cobertura da FONTE. Esta funcao le o store da Evolution, que e exatamente o que fica
+  // vazio durante o zumbi receive-only: a mensagem nunca chegou nela. Sem medir isso, um
+  // store cego devolve recovered=0/skipped=0/failed=0 e o codigo anunciava
+  // "Recuperacao Concluida" com sucesso, que e a pior saida possivel — o Marco fecha o
+  // Discord achando que acabou. Medido em 26/08/2026: mesmo apos o restart o replay do
+  // Baileys reencheu o store so em PARTE (1 ticket das 15:42 BRT nunca reapareceu).
+  let storeImagens = 0
+  let storeMaisAntigaTs = null
 
   for (const jid of groupJids) {
     try {
@@ -405,6 +436,11 @@ export async function executeRecovery(token) {
       const imageMessages = records.filter(m =>
         m.message?.imageMessage && m.key?.id
       )
+      storeImagens += imageMessages.length
+      for (const m of imageMessages) {
+        const ts = Number(m.messageTimestamp) || 0
+        if (ts > 0 && (storeMaisAntigaTs === null || ts < storeMaisAntigaTs)) storeMaisAntigaTs = ts
+      }
 
       for (const m of imageMessages) {
         const msgId = m.key.id
@@ -485,21 +521,52 @@ export async function executeRecovery(token) {
     motoristas[m] = (motoristas[m] || 0) + 1
   }
 
+  const cobertura = avaliarCoberturaStore({
+    storeImagens,
+    storeMaisAntigaTs,
+    startTs,
+    agoraTs: Math.floor(Date.now() / 1000),
+  })
+
+  const AVISO_LOCAL = [
+    '',
+    '**A FONTE NAO COBRE O BURACO.** Esta recuperacao le o store da Evolution, que e',
+    'justamente o que fica vazio no zumbi receive-only. O que enxerga o buraco e o daemon',
+    'WhatsApp (porta 3847), na maquina do Marco. Rodar la:',
+    '`node scripts/tp-recovery.js --from <ISO>`  (ou esperar o cron tpaulino-recovery-daemon, 20min)',
+  ].join('\n')
+
   const summary = [
     `**Recuperadas:** ${recovered.length} mensagens`,
     `**Ja existiam (dedup):** ${skipped.length}`,
     `**Falharam:** ${failed.length}`,
+    `**Fotos no store da Evolution na janela (${cobertura.janelaHoras.toFixed(1)}h):** ${storeImagens}`,
     recovered.length > 0 ? `**Motoristas:** ${Object.entries(motoristas).map(([k, v]) => `${k} (${v})`).join(', ')}` : '',
     failed.length > 0 ? `**Erros:** ${failed.map(f => f.reason || 'unknown').join('; ').substring(0, 300)}` : '',
+    cobertura.cego ? AVISO_LOCAL : '',
+    (!cobertura.cego && cobertura.parcial)
+      ? `${AVISO_LOCAL}\n(cobertura PARCIAL: a foto mais antiga do store esta ${cobertura.buracoHoras.toFixed(1)}h depois do inicio da janela)`
+      : '',
   ].filter(Boolean).join('\n')
 
   // O modo sai do RESULTADO, nao da funcao: recuperacao que deixou mensagem pra tras e
   // frete que nunca entra no sistema. Se falhou alguma, alguem precisa agir, entao pinga.
-  if (failed.length > 0) {
-    await alertError('Recuperacao Concluida (com falhas)', summary)
+  // Store cego/parcial pinga pelo mesmo motivo, e e o caso que ANTES saia como sucesso:
+  // recovered=0 com fonte vazia nao e "nada a recuperar", e "nao consegui olhar".
+  if (failed.length > 0 || cobertura.cego || cobertura.parcial) {
+    const titulo = failed.length > 0 ? 'Recuperacao Concluida (com falhas)' : 'Recuperacao NAO confiavel (fonte cega)'
+    await alertError(titulo, summary)
   } else {
     await alertSuccess('Recuperacao Concluida', summary)
   }
 
-  return { ok: true, recovered: recovered.length, skipped: skipped.length, failed: failed.length, details: { recovered, skipped, failed } }
+  return {
+    ok: true,
+    recovered: recovered.length,
+    skipped: skipped.length,
+    failed: failed.length,
+    storeImagens,
+    cobertura,
+    details: { recovered, skipped, failed },
+  }
 }
