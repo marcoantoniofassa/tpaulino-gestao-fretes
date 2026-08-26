@@ -197,12 +197,18 @@ async function main() {
   }
 
   let ok = 0, fail = 0
+  // So os que o webhook ACEITOU entram na confirmacao. Conferir `toReplay` inteiro
+  // misturava POST que falhou com linha que ja existia OK no banco (posta por outra
+  // entrega), inflando `confirmados` acima de `ok` e produzindo nao_confirmados NEGATIVO
+  // no resumo que o cron do hub le.
+  const aceitos = []
   for (const img of toReplay) {
     try {
       const res = await postWebhook(img)
       if (res.status >= 200 && res.status < 300) {
         console.log(`OK  [${groupName(img.chat_jid)}] ${img.ts_iso} -> ${res.body}`)
         ok++
+        aceitos.push(img)
       } else {
         console.error(`FAIL [${groupName(img.chat_jid)}] ${img.ts_iso} -> ${res.status} ${res.body}`)
         fail++
@@ -222,7 +228,7 @@ async function main() {
   if (ok > 0) {
     await new Promise(r => setTimeout(r, 15000)) // folga pro pipeline async terminar
     try {
-      const enviados = toReplay.map(i => i.msg_id)
+      const enviados = aceitos.map(i => i.msg_id)
       const inList = enviados.map(id => `"${id}"`).join(',')
       const url = `${SB_URL}/rest/v1/tp_mensagens_raw?msg_id=in.(${encodeURIComponent(inList)})&select=msg_id,chat_jid,status`
       const r = await fetch(url, { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } })
@@ -230,8 +236,9 @@ async function main() {
         const rows = await r.json()
         const bons = new Set(rows.filter(x => x.status === 'OK' || x.status === 'IGNORADO')
           .map(x => chaveRaw(x.msg_id, x.chat_jid)))
-        confirmados = toReplay.filter(i => bons.has(chaveRaw(i.msg_id, i.chat_jid))).length
-        const pendentes = rows.filter(x => x.status !== 'OK' && x.status !== 'IGNORADO')
+        confirmados = aceitos.filter(i => bons.has(chaveRaw(i.msg_id, i.chat_jid))).length
+        const aceitosSet = new Set(aceitos.map(i => chaveRaw(i.msg_id, i.chat_jid)))
+        const pendentes = rows.filter(x => aceitosSet.has(chaveRaw(x.msg_id, x.chat_jid)) && x.status !== 'OK' && x.status !== 'IGNORADO')
         if (pendentes.length > 0) {
           console.error(`NAO confirmados no banco: ${pendentes.map(x => `${x.msg_id.slice(0,12)}=${x.status}`).join(', ')}`)
         }

@@ -180,4 +180,15 @@ assert.ok(/\breturn\b/.test(blocoDup),
 assert.ok(!/ocrTicket|tp_fretes/.test(blocoDup),
   'o caminho de duplicata nao pode chamar OCR nem inserir frete')
 
+// A confirmacao no banco so pode olhar o que o webhook ACEITOU. Conferir a lista inteira
+// de candidatos mistura POST que falhou com linha que ja existia OK, inflando
+// `confirmados` acima de `ok` e gerando nao_confirmados NEGATIVO no resumo que o cron le.
+const scriptRec = await readFile(new URL('../scripts/tp-recovery.js', import.meta.url), 'utf8')
+const iConf = scriptRec.indexOf('let confirmados = 0')
+assert.ok(iConf > 0, 'nao achei o bloco de confirmacao no tp-recovery.js')
+const blocoConf = semComentario(scriptRec.slice(iConf, scriptRec.indexOf('const naoConfirmados', iConf)))
+assert.ok(!/toReplay/.test(blocoConf),
+  'a confirmacao no banco tem que usar SO os aceitos (2xx), nunca toReplay inteiro')
+assert.ok(/aceitos/.test(blocoConf), 'a confirmacao no banco tem que partir da lista de aceitos')
+
 console.log('check:zombie OK — cobertura, decisao do alerta, reentrega sai sempre, fromMe, status relido, grupos == config, sonda nao mente, restart nao carimba saude')
