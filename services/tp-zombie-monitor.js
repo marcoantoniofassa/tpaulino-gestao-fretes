@@ -13,7 +13,8 @@ import {
 } from './config.js'
 
 // Thresholds for receive-only zombie detection (probe OK but message gap)
-// Based on incident 09/04/2026: 57h receive-only gap with sendText probe passing.
+// Based on incident 09/04/2026: 57h receive-only gap com a sonda passando o tempo todo
+// (a sonda le connectionState; 'open' fica verde durante o zumbi inteiro).
 // Tuned 10/04: 4h had false positives. Tuned 11/04: 10h too slow (missed 5h zombie).
 // Compromise: 4h suspect, 6h critical. Drivers send ~every 2-3h during active day.
 const GAP_SUSPECT_HOURS = 4   // Log only, no alert
@@ -171,7 +172,8 @@ export async function runZombieMonitor() {
       return
     }
 
-    // Step 2: Check message gap + sendText probe (the reliable zombie detection)
+    // Step 2: gap de mensagem + estado da conexao. Quem detecta zumbi e o GAP; o estado
+    // so separa 'caiu' de 'esta open e mesmo assim nao chega nada'.
     const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }))
     const hour = now.getHours()
 
@@ -187,23 +189,25 @@ export async function runZombieMonitor() {
           const probe = await probeConnectionState()
 
           if (!probe.ok) {
-            // Zombie FULL: send path also broken
+            // Estado da conexao NAO esta 'open'. Isto nao diz nada sobre envio: a sonda
+            // le connectionState, nao manda mensagem. E uma queda declarada, nao um zumbi.
             state.consecutiveFailures++
             console.warn(`[ZombieMonitor] Probe failed (${state.consecutiveFailures}x): ${probe.error || JSON.stringify(probe.body).substring(0, 200)}`)
 
             if (state.consecutiveFailures >= 2) {
               zombieConfirmed = true
-              zombieReason = `Zombie FULL: probe sendText falhou ${state.consecutiveFailures}x. Gap: ${gapHours.toFixed(1)}h sem mensagens.`
+              zombieReason = `Conexao CAIDA: connectionState fora de 'open' ${state.consecutiveFailures}x seguidas. Gap: ${gapHours.toFixed(1)}h sem mensagens. (a sonda le estado da conexao, NAO testa envio)`
             }
           } else {
-            // Probe OK: could be healthy (slow day) OR zombie RECEIVE-ONLY (upstream stuck)
-            // Incident 09/04/2026: 57h receive-only gap with probe passing the whole time.
-            // We discriminate by gap size.
+            // connectionState == 'open'. Pode ser dia fraco OU zumbi receive-only: 'open'
+            // fica verde nos dois casos (09/04/2026: 57h de gap com a sonda passando o
+            // tempo todo). Quem discrimina e o TAMANHO DO GAP, nunca a sonda.
             if (gapHours >= GAP_CRITICAL_HOURS) {
               // CRITICAL: receive-only zombie confirmed
               zombieConfirmed = true
-              zombieReason = `Zombie RECEIVE-ONLY: gap ${gapHours.toFixed(1)}h sem mensagens (>=${GAP_CRITICAL_HOURS}h). sendText funciona mas MESSAGES_UPSERT upstream travado.`
-              // Reset fail counter since send path is OK (different failure mode)
+              zombieReason = `Zombie RECEIVE-ONLY: gap ${gapHours.toFixed(1)}h sem mensagens (>=${GAP_CRITICAL_HOURS}h) com connectionState 'open'. MESSAGES_UPSERT travado upstream. (envio NAO foi testado: a sonda so le o estado da conexao)`
+              // Zera o contador: ele conta falha DA SONDA, e a sonda passou. Nao e
+              // afirmacao de que o caminho de envio esta bom.
               state.consecutiveFailures = 0
             } else if (gapHours >= GAP_SUSPECT_HOURS) {
               // SUSPECT: log only, do not alert yet (give it some buffer)
@@ -387,14 +391,17 @@ export async function executeRestart(token) {
     console.log('[ZombieMonitor] Container restart initiated, waiting 90s...')
     await new Promise(r => setTimeout(r, 90000))
 
-    // Step 4: Verify reconnection
-    let reconnected = false
+    // Step 4: o container voltou a responder? Isto NAO e verificar reconexao de verdade:
+    // connectionState volta pra 'open' rapido e fica 'open' durante todo o zumbi
+    // receive-only. Por isso aqui NAO se marca lastHealthyAt: carimbar saude com este
+    // sinal apagaria o marco de inicio do zumbi que a janela de recuperacao usa — o mesmo
+    // erro que o ramo pre-8h cometia. Prova de recebimento e mensagem nova chegando.
+    let estadoVoltouOpen = false
     for (let i = 0; i < 3; i++) {
       try {
         const probe = await probeConnectionState()
         if (probe.ok) {
-          reconnected = true
-          state.lastHealthyAt = Date.now()
+          estadoVoltouOpen = true
           break
         }
       } catch {}
@@ -405,14 +412,17 @@ export async function executeRestart(token) {
     const zombieStartTime = action.zombieStartTime || state.lastHealthyAt
     const zombiePeriod = formatTimeDiff(Date.now() - zombieStartTime)
 
-    if (reconnected) {
+    if (estadoVoltouOpen) {
       const recoveryToken = createActionToken('recover', { zombieStartTime })
       const recoveryUrl = `${APP_BASE_URL}/api/tp/zombie-recover?key=${PUSH_API_KEY}&token=${recoveryToken}`
 
       await alertWithAction(
         'Evolution Reiniciado',
         [
-          `Container reiniciado com sucesso.`,
+          `Container reiniciado. O connectionState voltou pra 'open'.`,
+          `**Isso NAO prova que voltou a RECEBER:** 'open' fica verde durante todo o zumbi`,
+          `receive-only. A prova e mensagem nova entrando, ou o contador de mensagens da`,
+          `instancia subindo em GET /instance/fetchInstances.`,
           `**Periodo zombie:** ${new Date(zombieStartTime).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} ate agora (${zombiePeriod})`,
           '',
           'Clique abaixo para buscar e reprocessar mensagens perdidas no periodo.',
@@ -422,11 +432,11 @@ export async function executeRestart(token) {
         0x44AAFF // blue
       )
 
-      return { ok: true, reconnected: true, zombiePeriod }
+      return { ok: true, estadoVoltouOpen: true, zombiePeriod }
     } else {
-      await alertError('Restart: Reconexao Falhou',
-        `Container reiniciado mas probe falhou 3x apos 90s+. Verificar manualmente.`)
-      return { ok: true, reconnected: false, warning: 'Probe failed after restart' }
+      await alertError('Restart: estado NAO voltou pra open',
+        `Container reiniciado mas connectionState seguiu fora de 'open' em 3 tentativas apos 90s+. Verificar manualmente.`)
+      return { ok: true, estadoVoltouOpen: false, warning: "connectionState nao voltou pra 'open' apos restart" }
     }
 
   } catch (err) {

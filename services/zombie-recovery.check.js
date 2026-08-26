@@ -108,24 +108,46 @@ assert.strictEqual(doScript.size, doConfig.size, 'recuperacao e config tem que c
 // que explicava a regra, ou seja, reprovava o codigo certo — e guarda que da falso
 // positivo acaba desligada por chata.
 const semComentario = (t) => t.split('\n').map(l => l.replace(/\/\/.*$/, '')).join('\n')
+// Proibe ATRIBUIR, nao mencionar: LER lastHealthyAt e legitimo (executeRestart usa como
+// fallback do zombieStartTime) e a versao anterior desta guarda reprovava essa leitura.
+// Cobre `state.lastHealthyAt =`, `state['lastHealthyAt'] =` e Object.assign.
+const atribuiSaude = (t) => {
+  const c = semComentario(t)
+  return /lastHealthyAt['"\]\s]*=[^=]/.test(c) || (/Object\.assign/.test(c) && /lastHealthyAt/.test(c))
+}
 
 const monitor = await readFile(new URL('./tp-zombie-monitor.js', import.meta.url), 'utf8')
 
 // lastHealthyAt so pode ser carimbado onde houve RECEBIMENTO. Estes dois pontos empurravam
 // o marco de saude pra frente durante o zumbi, encolhendo calada a janela de recuperacao:
-//   (a) ramo pre-8h, que so roda sonda de ENVIO (a falha e receive-only)
+//   (a) ramo pre-8h, que so olha connectionState ('open' mente durante o zumbi)
 //   (b) bloco !zombieConfirmed, que roda tambem no caso "gap suspeito 4-6h"
 // Busca a MENCAO (nao so `state.x =`), pra `Object.assign` e `state['x']` nao escaparem.
-const ramoPre8h = semComentario(monitor.slice(monitor.indexOf('// Before 8am'), monitor.indexOf('if (!zombieConfirmed)')))
+const ramoPre8h = (monitor.slice(monitor.indexOf('// Before 8am'), monitor.indexOf('if (!zombieConfirmed)')))
 assert.ok(ramoPre8h.length > 50, 'nao achei o ramo pre-8h: este check precisa acompanhar o refactor')
-assert.ok(!ramoPre8h.includes('lastHealthyAt'),
-  'ramo pre-8h nao pode mexer em lastHealthyAt: a sonda so testa ENVIO e a falha e receive-only')
+assert.ok(!atribuiSaude(ramoPre8h),
+  "ramo pre-8h nao pode marcar lastHealthyAt: a sonda le connectionState, e 'open' fica verde durante todo o zumbi receive-only")
 
 const iBloco = monitor.indexOf('if (!zombieConfirmed)')
-const blocoSemZumbi = semComentario(monitor.slice(iBloco, monitor.indexOf('// ZOMBIE CONFIRMED', iBloco)))
+const blocoSemZumbi = (monitor.slice(iBloco, monitor.indexOf('// ZOMBIE CONFIRMED', iBloco)))
 assert.ok(blocoSemZumbi.length > 20, 'nao achei o bloco !zombieConfirmed: check precisa acompanhar o refactor')
-assert.ok(!blocoSemZumbi.includes('lastHealthyAt'),
+assert.ok(!atribuiSaude(blocoSemZumbi),
   'bloco !zombieConfirmed nao pode mexer em lastHealthyAt: ele roda tambem com gap suspeito de 4-6h')
+
+// A sonda le connectionState e NAO envia nada. Texto de alerta que fale em "sendText" ou
+// afirme que o envio funciona induz o humano a diagnosticar errado no meio do incidente:
+// foi por acreditar em "probe OK = envio vivo" que o modo receive-only passou 3 vezes.
+assert.ok(!/sendText/.test(monitor),
+  'o monitor nao pode falar em sendText: a sonda le connectionState e nao envia nada')
+
+// Depois do restart, connectionState volta pra 'open' rapido e fica 'open' durante todo o
+// zumbi receive-only. Carimbar saude ali apaga o marco de inicio do zumbi que a janela de
+// recuperacao usa — mesmo erro que o ramo pre-8h cometia.
+const iRestart = monitor.indexOf('export async function executeRestart')
+assert.ok(iRestart > 0, 'nao achei executeRestart')
+const blocoRestart = (monitor.slice(iRestart, monitor.indexOf('export async function executeRecovery')))
+assert.ok(!atribuiSaude(blocoRestart),
+  "executeRestart nao pode marcar lastHealthyAt: 'open' nao prova recebimento")
 
 // A recuperacao tem que filtrar fromMe, como o tp-backfill.js ja fazia. Sem isso, foto que
 // o proprio numero mandou conta como cobertura e pode virar frete de motorista.
@@ -158,4 +180,4 @@ assert.ok(/\breturn\b/.test(blocoDup),
 assert.ok(!/ocrTicket|tp_fretes/.test(blocoDup),
   'o caminho de duplicata nao pode chamar OCR nem inserir frete')
 
-console.log('check:zombie OK — cobertura (cego/parcial/incerta), decisao do alerta, reentrega sai sempre, fromMe, status relido, grupos == config')
+console.log('check:zombie OK — cobertura, decisao do alerta, reentrega sai sempre, fromMe, status relido, grupos == config, sonda nao mente, restart nao carimba saude')
