@@ -294,6 +294,10 @@ Se Gemini classificar como OUTRO um ticket com container + terminal visivel, cor
 
 ## Abastecimentos — Cadastro Automatico (v2-08) + Manual
 
+### Regra de status: diesel nasce PAGO
+
+Abastecimento **nunca** entra na fila de pendentes. A ISIS abastece e desconta direto no acerto do frete com o T Paulino, entao nao existe baixa manual pra dar. `tipo=ABASTECIMENTO` nasce `status=PAGO` nos dois caminhos de insert (`processAbastecimento` no cron de 15min e `createGasto` no app). A tela de Despesas abre filtrada em Pendentes, entao diesel some da fila e continua somando em Despesas do mes no Dashboard.
+
 ### Regra de preco
 
 Caminhoes abastecem no **posto interno da ISIS** — ISIS cobra Thiago a parte. Preco NAO aparece na ficha. Usar preco medio estimado (diesel S10 Cubatao/SP, **R$ 6,25/L** — padrao observado em 100% dos cadastros ate 09/04/2026).
@@ -310,7 +314,7 @@ O **km no odometro** em cada abastecimento e essencial para calcular consumo (km
 4. Inserir em `tp_gastos` via REST API (service_role key — disponivel no node "POST Supabase" do N8N workflow Z7s30S9vl1Wi62aQ):
    - `tipo`: ABASTECIMENTO
    - `forma_pagamento`: CARTAO_FROTA
-   - `status`: PENDENTE
+   - `status`: PAGO (diesel nao tem baixa manual: a ISIS desconta no acerto do frete)
    - `preco_litro`: media diesel S10 Cubatao (~R$ 6,25/L mar/2026) — posto ISIS, preco cobrado a parte
    - `valor`: litros × preco_litro
    - `km_odometro`: **OBRIGATORIO** — sem km nao calcula consumo
@@ -384,7 +388,7 @@ Cenario diferente do zombie full: sendText funciona normalmente, mas MESSAGES_UP
 2. `railway variables --service tpaulino-gestao-fretes --set "RECOVERY_MODE=true"`
 3. Rodar script de recovery: dedup por `msg_id` em `tp_mensagens_raw`, ordem cronologica ASC, delay 3s entre cada, POST `/api/tp/webhook` com payload minimal `{data:{key:{remoteJid,fromMe:false,id,participant},messageTimestamp,message:{imageMessage:{mimetype:'image/jpeg'},base64}}}`
 4. `railway variables --set "RECOVERY_MODE=false"`
-5. Abastecimentos com OCR classificado errado (OUTRO ou TICKET_FRETE sem container) nao entram em `tp_gastos` via pipeline — cadastrar manual via REST: `tp_gastos` com `tipo=ABASTECIMENTO`, `preco_litro=6.25`, `status=PENDENTE`
+5. Abastecimentos com OCR classificado errado (OUTRO ou TICKET_FRETE sem container) nao entram em `tp_gastos` via pipeline — cadastrar manual via REST: `tp_gastos` com `tipo=ABASTECIMENTO`, `preco_litro=6.25`, `status=PAGO`
 
 ### Variante: Pipeline ABASTECIMENTO → tp_gastos (automatico)
 

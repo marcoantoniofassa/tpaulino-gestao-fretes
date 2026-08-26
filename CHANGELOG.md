@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-08-26
+
+- `feat(gastos)`: abastecimento nasce `PAGO`. A ISIS abastece e desconta no acerto do frete com o T Paulino: nao existe pagamento manual, entao diesel nunca deveria ter entrado na fila de pendentes.
+- `services/business-rules.js` (`processAbastecimento`, cron de 15min) e `src/hooks/useGastos.ts` (`createGasto`, cadastro pelo app): os dois unicos caminhos de INSERT em `tp_gastos` gravam `status=PAGO` quando `tipo=ABASTECIMENTO`.
+- Backfill: 105 abastecimentos historicos em `PENDENTE` (R$ 219.980,15, 10/01 a 30/10/2026) migrados pra `PAGO`. Como o Dashboard so soma gasto `PAGO`, o diesel estava fora de Despesas do Mes e inflava o Lucro: e a issue #8 ("valores nao batendo") na parte de diesel.
+- `src/pages/GastosPage.tsx`: filtro de status abre em **Pendentes** (era "Todos"). O status saiu da query e passou a filtrar a lista na tela, senao os cards Total/Pago do resumo passariam a somar so a fatia filtrada. Pills de status da aba Diesel removidas (viraram letra morta com todo abastecimento PAGO).
+- `src/hooks/useDashboard.ts`: `totalGastosPendentes` era calculado e devolvido sem nenhum consumidor. Removido.
+- Torna a issue #9 (baixa manual de abastecimento) sem objeto.
+
 ## 2026-08-19
 
 - `fix(discord)`: classificacao de alerta corrigida nos dois sentidos (PR #20, review Claude + Codex).

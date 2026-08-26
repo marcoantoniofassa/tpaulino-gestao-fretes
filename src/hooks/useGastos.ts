@@ -125,6 +125,8 @@ export async function createGasto(
       data: gasto.data,
       tipo: gasto.tipo,
       valor: gasto.valor,
+      // Diesel nasce PAGO: a ISIS desconta no acerto do frete, nao existe baixa manual
+      status: gasto.tipo === 'ABASTECIMENTO' ? 'PAGO' : 'PENDENTE',
       veiculo_id: gasto.veiculo_id || null,
       descricao: gasto.descricao || null,
       vencimento: gasto.vencimento || null,

@@ -18,7 +18,6 @@ interface DashboardData {
   mediaDiaria: number
   fretesHoje: number
   totalGastos: number
-  totalGastosPendentes: number
   lucro: number
   fretesPorMotorista: { motorista: string; count: number; receita: number }[]
   receitaPorDia: { data: string; receita: number; fretes: number }[]
@@ -55,8 +54,6 @@ export function useDashboard(inicio: string, fim: string) {
     // Only count PAGO gastos in the total to avoid inflating with pending expenses
     const gastosPagos = (gastosList || []).filter((g: any) => g.status === 'PAGO')
     const totalGastos = gastosPagos.reduce((sum: number, g: any) => sum + (g.valor || 0), 0)
-    const gastosPendentes = (gastosList || []).filter((g: any) => g.status === 'PENDENTE')
-    const totalGastosPendentes = gastosPendentes.reduce((sum: number, g: any) => sum + (g.valor || 0), 0)
     const lucro = receitaLiquida - totalGastos
     const diasUnicos = new Set(fretesTyped.map(f => f.data_frete)).size
     const mediaDiaria = diasUnicos > 0 ? receitaLiquida / diasUnicos : 0
@@ -120,7 +117,6 @@ export function useDashboard(inicio: string, fim: string) {
       mediaDiaria,
       fretesHoje,
       totalGastos,
-      totalGastosPendentes,
       lucro,
       fretesPorMotorista,
       receitaPorDia,
