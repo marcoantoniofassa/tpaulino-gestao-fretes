@@ -54,6 +54,22 @@ assert.strictEqual(truncada.incerta, true, 'pagina cheia pode estar truncada = i
 const umGrupoVazio = avaliarCoberturaStore({ ...base, storeImagens: 1, storeMaisAntigaTs: inicio + 60, gruposVazios: 4 })
 assert.strictEqual(umGrupoVazio.incerta, true, '4 grupos sem nenhuma foto nao pode sair como cobertura boa')
 
+// Grupo NAO CONSULTADO (findMessages falhou) e pior que grupo vazio: no vazio eu medi,
+// aqui nem olhei. Nao pode sair nenhum titulo com "Concluida".
+const naoConsultado = avaliarCoberturaStore({ ...base, storeImagens: 8, storeMaisAntigaTs: inicio + 60, naoConsultados: 1 })
+assert.strictEqual(naoConsultado.incerta, true, 'grupo nao consultado = cobertura incerta')
+assert.strictEqual(decidirAlertaRecuperacao({ failed: 1, cobertura: naoConsultado }).tipo, 'erro',
+  'grupo nao consultado pinga')
+assert.ok(!decidirAlertaRecuperacao({ failed: 1, cobertura: naoConsultado }).titulo.includes('Concluida'),
+  'nao da pra dizer "Concluida" numa varredura que pulou um grupo inteiro')
+// E a inicializacao de porGrupo tem que vir ANTES do try, senao grupo que falhou nao entra
+// na contagem e a cobertura fica boa por omissao.
+const monitorFonte = await readFile(new URL('./tp-zombie-monitor.js', import.meta.url), 'utf8')
+const iLoop = monitorFonte.indexOf('for (const jid of groupJids) {')
+const cabecaLoop = monitorFonte.slice(iLoop, monitorFonte.indexOf('try {', iLoop))
+assert.ok(/porGrupo\[jid\] = 0/.test(cabecaLoop),
+  'porGrupo tem que ser inicializado ANTES do try: senao grupo que falha some da contagem')
+
 // --- A DECISAO do alerta --------------------------------------------------------------
 // Testar so avaliarCoberturaStore nao protegia nada: dava pra ignorar o veredito dela na
 // hora de alertar e o check continuava verde. O defeito era a ESCOLHA, entao ela e testada.

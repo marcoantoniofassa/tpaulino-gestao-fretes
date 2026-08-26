@@ -99,19 +99,20 @@ export function avaliarCoberturaStore({
   semTimestamp = 0,
   gruposVazios = 0,
   truncados = 0,
+  naoConsultados = 0,
 }) {
   const janelaHoras = Math.max(0, (agoraTs - startTs) / 3600)
   if (storeImagens === 0) {
-    return { cego: true, parcial: false, incerta: false, janelaHoras, buracoHoras: janelaHoras }
+    return { cego: true, parcial: false, incerta: naoConsultados > 0, naoConsultados, janelaHoras, buracoHoras: janelaHoras }
   }
   // Sem timestamp legivel nao da pra dizer ONDE a cobertura comeca, e a versao anterior
   // concluia buraco=0, ou seja, virava "cobertura perfeita" exatamente quando nao sabia.
   // Pagina cheia (truncado) tem o mesmo efeito: a lista pode ter sido cortada.
   // Grupo vazio pode ser motorista de folga OU store cego naquele grupo — daqui nao da
   // pra distinguir, entao vira incerteza pra humano olhar, nunca silencio.
-  const incerta = semTimestamp > 0 || truncados > 0 || gruposVazios > 0 || storeMaisAntigaTs === null
+  const incerta = semTimestamp > 0 || truncados > 0 || gruposVazios > 0 || naoConsultados > 0 || storeMaisAntigaTs === null
   const buracoHoras = storeMaisAntigaTs === null ? janelaHoras : Math.max(0, (storeMaisAntigaTs - startTs) / 3600)
-  return { cego: false, parcial: buracoHoras > 1, incerta, janelaHoras, buracoHoras }
+  return { cego: false, parcial: buracoHoras > 1, incerta, naoConsultados, janelaHoras, buracoHoras }
 }
 
 // Decide COMO reportar. Separada e pura porque o defeito original era exatamente esta
@@ -119,6 +120,11 @@ export function avaliarCoberturaStore({
 // nao protegia nada: dava pra ignorar o veredito dela na hora de alertar e o check
 // continuava verde.
 export function decidirAlertaRecuperacao({ failed = 0, cobertura }) {
+  // Grupo nao consultado vem ANTES de qualquer "Concluida": nao da pra dizer que
+  // terminou uma varredura que pulou um grupo inteiro.
+  if (cobertura?.naoConsultados > 0) {
+    return { tipo: 'erro', titulo: 'Recuperacao INCOMPLETA (grupo nao consultado)' }
+  }
   if (failed > 0) return { tipo: 'erro', titulo: 'Recuperacao Concluida (com falhas)' }
   if (cobertura?.cego) return { tipo: 'erro', titulo: 'Recuperacao NAO confiavel (fonte cega)' }
   if (cobertura?.parcial) return { tipo: 'erro', titulo: 'Recuperacao NAO confiavel (fonte parcial)' }
@@ -474,6 +480,10 @@ export async function executeRecovery(token) {
   const truncados = []        // grupo que encheu a pagina: pode haver mais que nao vimos
   const porGrupo = {}         // cobertura POR GRUPO: agregado esconde grupo cego
   const maisAntigaPorGrupo = {} // quao TARDE cada grupo comeca: o agregado tambem esconde isso
+  // "nao consultei o grupo" e diferente de "o grupo nao tem foto": o primeiro e ignorancia,
+  // o segundo e medicao. Sem separar, findMessages falhando virava um zero indistinguivel
+  // de motorista de folga.
+  const naoConsultados = []
 
   for (const jid of groupJids) {
     porGrupo[jid] = 0
@@ -601,6 +611,7 @@ export async function executeRecovery(token) {
     } catch (err) {
       console.error(`[ZombieMonitor] findMessages failed for ${jid}:`, err.message)
       failed.push({ jid, reason: err.message })
+      naoConsultados.push(jid)
     }
   }
 
@@ -611,9 +622,12 @@ export async function executeRecovery(token) {
     motoristas[m] = (motoristas[m] || 0) + 1
   }
 
+  // Vazio MEDIDO: consultei e nao havia foto. Grupo nao consultado sai desta lista e vai
+  // pra `naoConsultados`, que e mais grave — ali nem olhei.
   const gruposVaziosLista = Object.entries(porGrupo)
-    .filter(([, n]) => n === 0)
+    .filter(([jid, n]) => n === 0 && !naoConsultados.includes(jid))
     .map(([jid]) => GROUP_MOTORISTA[jid]?.motorista || jid)
+  const naoConsultadosNomes = naoConsultados.map(j => GROUP_MOTORISTA[j]?.motorista || j)
 
   const cobertura = avaliarCoberturaStore({
     storeImagens,
@@ -623,6 +637,7 @@ export async function executeRecovery(token) {
     semTimestamp,
     gruposVazios: gruposVaziosLista.length,
     truncados: truncados.length,
+    naoConsultados: naoConsultados.length,
   })
 
   const AVISO_LOCAL = [
@@ -649,6 +664,7 @@ export async function executeRecovery(token) {
       const atraso = ts ? `+${((ts - startTs) / 3600).toFixed(1)}h` : '-'
       return `${nome}: ${n} | ${atraso}`
     }).join(', ')}`,
+    naoConsultadosNomes.length > 0 ? `**Grupo NAO CONSULTADO (findMessages falhou):** ${naoConsultadosNomes.join(', ')} — nao olhei este grupo, entao nada aqui fala por ele` : '',
     gruposVaziosLista.length > 0 ? `**Grupo sem NENHUMA foto na janela:** ${gruposVaziosLista.join(', ')} (pode ser folga do motorista ou store cego naquele grupo: daqui nao da pra distinguir)` : '',
     semTimestamp > 0 ? `**Fotos sem timestamp legivel:** ${semTimestamp} (nao da pra dizer onde a cobertura comeca)` : '',
     truncados.length > 0 ? `**Pagina cheia (pode ter sido cortada, teto ${PAGINA}):** ${truncados.map(j => GROUP_MOTORISTA[j]?.motorista || j).join(', ')}` : '',
