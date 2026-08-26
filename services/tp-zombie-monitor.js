@@ -90,13 +90,41 @@ function formatTimeDiff(ms) {
 // que mente sobre cobertura foi o defeito que deixou 3 zumbis passarem em branco.
 // `parcial` usa 1h de tolerancia porque o inicio da janela raramente coincide com uma
 // mensagem: o buraco so importa quando o store comeca BEM depois do inicio do zumbi.
-export function avaliarCoberturaStore({ storeImagens, storeMaisAntigaTs, startTs, agoraTs }) {
+export function avaliarCoberturaStore({
+  storeImagens,
+  storeMaisAntigaTs,
+  startTs,
+  agoraTs,
+  semTimestamp = 0,
+  gruposVazios = 0,
+  truncados = 0,
+}) {
   const janelaHoras = Math.max(0, (agoraTs - startTs) / 3600)
   if (storeImagens === 0) {
-    return { cego: true, parcial: false, janelaHoras, buracoHoras: janelaHoras }
+    return { cego: true, parcial: false, incerta: false, janelaHoras, buracoHoras: janelaHoras }
   }
-  const buracoHoras = storeMaisAntigaTs ? Math.max(0, (storeMaisAntigaTs - startTs) / 3600) : 0
-  return { cego: false, parcial: buracoHoras > 1, janelaHoras, buracoHoras }
+  // Sem timestamp legivel nao da pra dizer ONDE a cobertura comeca, e a versao anterior
+  // concluia buraco=0, ou seja, virava "cobertura perfeita" exatamente quando nao sabia.
+  // Pagina cheia (truncado) tem o mesmo efeito: a lista pode ter sido cortada.
+  // Grupo vazio pode ser motorista de folga OU store cego naquele grupo — daqui nao da
+  // pra distinguir, entao vira incerteza pra humano olhar, nunca silencio.
+  const incerta = semTimestamp > 0 || truncados > 0 || gruposVazios > 0 || storeMaisAntigaTs === null
+  const buracoHoras = storeMaisAntigaTs === null ? janelaHoras : Math.max(0, (storeMaisAntigaTs - startTs) / 3600)
+  return { cego: false, parcial: buracoHoras > 1, incerta, janelaHoras, buracoHoras }
+}
+
+// Decide COMO reportar. Separada e pura porque o defeito original era exatamente esta
+// escolha (store vazio saindo por alertSuccess), e testar `avaliarCoberturaStore` sozinha
+// nao protegia nada: dava pra ignorar o veredito dela na hora de alertar e o check
+// continuava verde.
+export function decidirAlertaRecuperacao({ failed = 0, cobertura }) {
+  if (failed > 0) return { tipo: 'erro', titulo: 'Recuperacao Concluida (com falhas)' }
+  if (cobertura?.cego) return { tipo: 'erro', titulo: 'Recuperacao NAO confiavel (fonte cega)' }
+  if (cobertura?.parcial) return { tipo: 'erro', titulo: 'Recuperacao NAO confiavel (fonte parcial)' }
+  if (cobertura?.incerta) return { tipo: 'erro', titulo: 'Recuperacao NAO confiavel (cobertura incerta)' }
+  // Nem aqui isto significa "recuperei tudo": o store nao tem como provar completude, ele
+  // so mostra o que TEM. Significa "nao achei buraco a partir do que a fonte revela".
+  return { tipo: 'sucesso', titulo: 'Recuperacao Concluida (sem buraco detectavel)' }
 }
 
 async function getLastMessageTime() {
@@ -424,32 +452,50 @@ export async function executeRecovery(token) {
   // Baileys reencheu o store so em PARTE (1 ticket das 15:42 BRT nunca reapareceu).
   let storeImagens = 0
   let storeMaisAntigaTs = null
+  let semTimestamp = 0        // foto no store sem messageTimestamp legivel
+  const PAGINA = 100
+  const truncados = []        // grupo que encheu a pagina: pode haver mais que nao vimos
+  const porGrupo = {}         // cobertura POR GRUPO: agregado esconde grupo cego
 
   for (const jid of groupJids) {
+    porGrupo[jid] = 0
     try {
       const result = await findMessages({
         key: { remoteJid: jid },
         messageTimestamp: { $gte: startTs },
-      }, 1, 100)
+      }, 1, PAGINA)
 
       const records = result?.messages?.records || result?.messages || []
+      // `!fromMe` como o tp-backfill.js ja fazia. Sem isso, foto que o proprio numero
+      // mandou no grupo entra na contagem de cobertura e ainda vira `fakeWebhook` com
+      // fromMe:false — ou seja, imagem nossa podendo virar frete de motorista.
       const imageMessages = records.filter(m =>
-        m.message?.imageMessage && m.key?.id
+        m.message?.imageMessage && m.key?.id && !m.key?.fromMe
       )
+      // Pagina cheia = a Evolution pode ter cortado. Nao da pra afirmar cobertura sobre
+      // uma lista que talvez esteja truncada, entao isso vira aviso em vez de silencio.
+      if (records.length >= PAGINA) truncados.push(jid)
+
       storeImagens += imageMessages.length
+      porGrupo[jid] = imageMessages.length
       for (const m of imageMessages) {
         const ts = Number(m.messageTimestamp) || 0
-        if (ts > 0 && (storeMaisAntigaTs === null || ts < storeMaisAntigaTs)) storeMaisAntigaTs = ts
+        if (ts > 0) {
+          if (storeMaisAntigaTs === null || ts < storeMaisAntigaTs) storeMaisAntigaTs = ts
+        } else {
+          semTimestamp++
+        }
       }
 
       for (const m of imageMessages) {
         const msgId = m.key.id
 
-        // Dedup: check if already in tp_mensagens_raw
+        // Dedup: a UNIQUE e (msg_id, chat_jid), entao filtrar so por msg_id pula uma
+        // mensagem legitima de OUTRO grupo que por acaso tenha o mesmo id.
         try {
           const existing = await db.query(
             'tp_mensagens_raw',
-            `select=msg_id&msg_id=eq.${msgId}&limit=1`
+            `select=msg_id&msg_id=eq.${msgId}&chat_jid=eq.${encodeURIComponent(jid)}&limit=1`
           )
           if (existing.length > 0) {
             skipped.push({ msg_id: msgId, jid })
@@ -500,7 +546,23 @@ export async function executeRecovery(token) {
 
         try {
           await processWebhookMessage(fakeWebhook)
-          recovered.push({ msg_id: msgId, jid })
+          // processWebhookMessage NUNCA lanca: o catch dela engole o erro e marca a raw
+          // como ERRO. Entao "nao estourou excecao" nao e prova de nada — OCR que falhou
+          // ou INSERT que deu 500 entravam em `recovered` e o relatorio dizia
+          // "Recuperadas: N / Falharam: 0" sem nenhum frete ter nascido.
+          // O veredito esta na LINHA, entao le a linha.
+          const [linha] = await db.query(
+            'tp_mensagens_raw',
+            `select=status&msg_id=eq.${msgId}&chat_jid=eq.${encodeURIComponent(jid)}&limit=1`
+          ).catch(() => [])
+          const st = linha?.status
+          // IGNORADO conta como recuperado: e desfecho legitimo (comprovante de
+          // abastecimento, que o cron de 15min pega depois), nao falha.
+          if (st === 'OK' || st === 'IGNORADO') {
+            recovered.push({ msg_id: msgId, jid, status: st })
+          } else {
+            failed.push({ msg_id: msgId, jid, reason: `pipeline terminou em ${st || 'linha ausente'}` })
+          }
         } catch (err) {
           failed.push({ msg_id: msgId, jid, reason: err.message })
         }
@@ -521,16 +583,23 @@ export async function executeRecovery(token) {
     motoristas[m] = (motoristas[m] || 0) + 1
   }
 
+  const gruposVaziosLista = Object.entries(porGrupo)
+    .filter(([, n]) => n === 0)
+    .map(([jid]) => GROUP_MOTORISTA[jid]?.motorista || jid)
+
   const cobertura = avaliarCoberturaStore({
     storeImagens,
     storeMaisAntigaTs,
     startTs,
     agoraTs: Math.floor(Date.now() / 1000),
+    semTimestamp,
+    gruposVazios: gruposVaziosLista.length,
+    truncados: truncados.length,
   })
 
   const AVISO_LOCAL = [
     '',
-    '**A FONTE NAO COBRE O BURACO.** Esta recuperacao le o store da Evolution, que e',
+    '**NAO DA PRA GARANTIR QUE O BURACO FOI COBERTO.** Esta recuperacao le o store da Evolution, que e',
     'justamente o que fica vazio no zumbi receive-only. O que enxerga o buraco e o daemon',
     'WhatsApp (porta 3847), na maquina do Marco. Rodar la:',
     '`node scripts/tp-recovery.js --from <ISO>`  (ou esperar o cron tpaulino-recovery-daemon, 20min)',
@@ -541,24 +610,21 @@ export async function executeRecovery(token) {
     `**Ja existiam (dedup):** ${skipped.length}`,
     `**Falharam:** ${failed.length}`,
     `**Fotos no store da Evolution na janela (${cobertura.janelaHoras.toFixed(1)}h):** ${storeImagens}`,
+    `**Por grupo:** ${Object.entries(porGrupo).map(([jid, n]) => `${GROUP_MOTORISTA[jid]?.motorista || jid}: ${n}`).join(', ')}`,
+    gruposVaziosLista.length > 0 ? `**Grupo sem NENHUMA foto na janela:** ${gruposVaziosLista.join(', ')} (pode ser folga do motorista ou store cego naquele grupo: daqui nao da pra distinguir)` : '',
+    semTimestamp > 0 ? `**Fotos sem timestamp legivel:** ${semTimestamp} (nao da pra dizer onde a cobertura comeca)` : '',
+    truncados.length > 0 ? `**Pagina cheia (pode ter sido cortada, teto ${PAGINA}):** ${truncados.map(j => GROUP_MOTORISTA[j]?.motorista || j).join(', ')}` : '',
     recovered.length > 0 ? `**Motoristas:** ${Object.entries(motoristas).map(([k, v]) => `${k} (${v})`).join(', ')}` : '',
     failed.length > 0 ? `**Erros:** ${failed.map(f => f.reason || 'unknown').join('; ').substring(0, 300)}` : '',
-    cobertura.cego ? AVISO_LOCAL : '',
-    (!cobertura.cego && cobertura.parcial)
-      ? `${AVISO_LOCAL}\n(cobertura PARCIAL: a foto mais antiga do store esta ${cobertura.buracoHoras.toFixed(1)}h depois do inicio da janela)`
-      : '',
+    cobertura.parcial ? `(cobertura PARCIAL: a foto mais antiga do store esta ${cobertura.buracoHoras.toFixed(1)}h depois do inicio da janela)` : '',
+    (cobertura.cego || cobertura.parcial || cobertura.incerta) ? AVISO_LOCAL : '',
   ].filter(Boolean).join('\n')
 
-  // O modo sai do RESULTADO, nao da funcao: recuperacao que deixou mensagem pra tras e
-  // frete que nunca entra no sistema. Se falhou alguma, alguem precisa agir, entao pinga.
-  // Store cego/parcial pinga pelo mesmo motivo, e e o caso que ANTES saia como sucesso:
-  // recovered=0 com fonte vazia nao e "nada a recuperar", e "nao consegui olhar".
-  if (failed.length > 0 || cobertura.cego || cobertura.parcial) {
-    const titulo = failed.length > 0 ? 'Recuperacao Concluida (com falhas)' : 'Recuperacao NAO confiavel (fonte cega)'
-    await alertError(titulo, summary)
-  } else {
-    await alertSuccess('Recuperacao Concluida', summary)
-  }
+  // O modo sai do RESULTADO, nao da funcao. A decisao vive em decidirAlertaRecuperacao,
+  // que e pura e tem check: era exatamente aqui que store vazio saia por alertSuccess.
+  const alerta = decidirAlertaRecuperacao({ failed: failed.length, cobertura })
+  if (alerta.tipo === 'erro') await alertError(alerta.titulo, summary)
+  else await alertSuccess(alerta.titulo, summary)
 
   return {
     ok: true,

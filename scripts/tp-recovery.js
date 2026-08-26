@@ -102,14 +102,18 @@ async function fetchDaemonMessages(jid, args) {
   return out
 }
 
+// Chave do dedup e o PAR (msg_id, chat_jid), que e a UNIQUE real da tabela. Filtrar so
+// por msg_id pulava mensagem legitima de outro grupo que tivesse o mesmo id.
+export const chaveRaw = (msgId, chatJid) => `${msgId}|${chatJid}`
+
 async function existingRawIds(msgIds) {
   if (msgIds.length === 0) return new Set()
   const inList = msgIds.map(id => `"${id}"`).join(',')
-  const url = `${SB_URL}/rest/v1/tp_mensagens_raw?msg_id=in.(${encodeURIComponent(inList)})&select=msg_id`
+  const url = `${SB_URL}/rest/v1/tp_mensagens_raw?msg_id=in.(${encodeURIComponent(inList)})&select=msg_id,chat_jid`
   const r = await fetch(url, { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } })
   if (!r.ok) throw new Error(`Supabase ${r.status}: ${await r.text().then(t => t.slice(0,200))}`)
   const rows = await r.json()
-  return new Set(rows.map(r => r.msg_id))
+  return new Set(rows.map(r => chaveRaw(r.msg_id, r.chat_jid)))
 }
 
 async function postWebhook(img) {
@@ -162,7 +166,7 @@ async function main() {
   try { alreadyRaw = await existingRawIds(ids) } catch (err) {
     console.error('Dedup query falhou:', err.message); process.exit(1)
   }
-  const toReplay = candidates.filter(c => !alreadyRaw.has(c.msg_id))
+  const toReplay = candidates.filter(c => !alreadyRaw.has(chaveRaw(c.msg_id, c.chat_jid)))
   const dedupSkipped = candidates.length - toReplay.length
 
   console.log(`Skip por dedup raw existente: ${dedupSkipped}`)

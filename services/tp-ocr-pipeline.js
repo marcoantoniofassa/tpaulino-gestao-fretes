@@ -45,9 +45,6 @@ export function isUniqueViolation(err) {
   return m.includes('23505') || m.includes('duplicate key value')
 }
 
-// Estados em que a linha ja teve desfecho: reentrega e ruido, nao ha o que refazer.
-const STATUS_TERMINAIS = new Set(['OK', 'IGNORADO', 'DUPLICADO'])
-
 // Main processing pipeline
 export async function processWebhookMessage(body) {
   // Step 1: Filter groups + image
@@ -73,21 +70,20 @@ export async function processWebhookMessage(body) {
     } catch (insertErr) {
       if (!isUniqueViolation(insertErr)) throw insertErr
 
-      // Reentrega da Evolution. Se a linha ja teve desfecho, sair sem tocar em nada e
-      // sem alertar: refazer o OCR custaria Gemini a toa e sobrescreveria o resultado bom.
-      const [atual] = await db.query(
-        'tp_mensagens_raw',
-        `select=status&${rawFilter}&limit=1`,
-        'return=representation'
-      ).catch(() => [])
-      if (STATUS_TERMINAIS.has(atual?.status)) {
-        console.log(`[OCR] Reentrega ignorada (${msg.msg_id} ja esta ${atual.status})`)
-        return
-      }
-      // Linha existe mas ficou no meio do caminho (PENDENTE/PROCESSANDO/ERRO): a
-      // reentrega e uma segunda chance legitima, entao segue o fluxo e reaproveita o
-      // base64 que veio agora. Sem isso so o safety-net das 06:00 destravaria.
-      console.log(`[OCR] Reentrega de ${msg.msg_id} em ${atual?.status || 'desconhecido'}: reprocessando`)
+      // Perdeu a UNIQUE => outra execucao ja tem a posse desta mensagem. SAI, sempre.
+      //
+      // A primeira versao deste fix seguia o fluxo quando a linha estava PENDENTE/ERRO,
+      // pra dar "segunda chance" sem esperar o safety-net. O review cross-family derrubou:
+      // com duas entregas concorrentes da mesma msg_id, A insere e B perde a UNIQUE, mas
+      // B leria PENDENTE (posto por A, que ainda esta processando) e os DOIS seguiriam ate
+      // `INSERT tp_fretes`. Nao ha UNIQUE em tp_fretes nem claim atomico, entao daria dois
+      // fretes de R$ 630-740 da mesma foto e duas confirmacoes pro motorista. Trocar
+      // "linha marcada ERRO" (chato) por "frete duplicado" (dinheiro) e piorar o pior caso.
+      //
+      // Quem destrava linha parada continua sendo o safety-net das 06:00, que ja existe e
+      // ja deduplica por frete_id e por container+data antes de inserir.
+      console.log(`[OCR] Reentrega de ${msg.msg_id}: outra execucao tem a posse, saindo`)
+      return
     }
 
     // Step 3: Upload image to storage
@@ -314,6 +310,11 @@ function filterMessage(body) {
   const chatJid = data.key.remoteJid
   if (!GROUP_MOTORISTA[chatJid]) return null // Not an allowed group
   if (!data.message?.imageMessage) return null // No image
+  // Foto que saiu DO nosso proprio numero nao e ticket de motorista. O tp-backfill.js ja
+  // descartava fromMe; aqui nao, entao uma imagem nossa no grupo podia virar frete de
+  // R$ 630-740. Os dois caminhos de recuperacao (tp-recovery.js e executeRecovery) montam
+  // o payload com fromMe:false explicito, entao nada legitimo passa a ser barrado aqui.
+  if (data.key.fromMe) return null
 
   return {
     msg_id: data.key.id,
