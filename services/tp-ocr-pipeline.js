@@ -32,6 +32,19 @@ export function mountOcrWebhook(app) {
   })
 }
 
+// A Evolution REENTREGA mensagem no reconnect (replay do Baileys), entao a mesma msg_id
+// chega de novo depois que ja foi processada. O INSERT bate na UNIQUE(msg_id, chat_jid),
+// e ate 26/08/2026 isso caia no catch generico: alerta falso no Discord e, pior, PATCH
+// marcando ERRO a linha que estava OK. Dai o safety-net das 06:00 (que reprocessa ERRO)
+// pagava OCR de novo. Nao chegava a duplicar frete — o reprocessRawRecord ja deduplica
+// por frete_id e por container+data — mas o painel mostrava ERRO no que deu certo.
+// Pura e exportada pra ter check: e a regra que distingue "chegou duas vezes" (rotina)
+// de "quebrou" (incidente), e confundir as duas foi o defeito.
+export function isUniqueViolation(err) {
+  const m = String(err?.message || '')
+  return m.includes('23505') || m.includes('duplicate key value')
+}
+
 // Main processing pipeline
 export async function processWebhookMessage(body) {
   // Step 1: Filter groups + image
@@ -40,17 +53,38 @@ export async function processWebhookMessage(body) {
 
   console.log(`[OCR] Processing ${msg.msg_id} from ${msg.chat_jid}`)
 
+  const rawFilter = `msg_id=eq.${msg.msg_id}&chat_jid=eq.${encodeURIComponent(msg.chat_jid)}`
+
   try {
     // Step 2: Insert raw record (PENDENTE)
-    const raw = await db.insert('tp_mensagens_raw', {
-      msg_id: msg.msg_id,
-      chat_jid: msg.chat_jid,
-      sender_jid: msg.sender_jid,
-      timestamp_msg: new Date(msg.timestamp * 1000).toISOString(),
-      media_base64: msg.base64,
-      caption: msg.caption,
-      status: 'PENDENTE',
-    })
+    try {
+      await db.insert('tp_mensagens_raw', {
+        msg_id: msg.msg_id,
+        chat_jid: msg.chat_jid,
+        sender_jid: msg.sender_jid,
+        timestamp_msg: new Date(msg.timestamp * 1000).toISOString(),
+        media_base64: msg.base64,
+        caption: msg.caption,
+        status: 'PENDENTE',
+      })
+    } catch (insertErr) {
+      if (!isUniqueViolation(insertErr)) throw insertErr
+
+      // Perdeu a UNIQUE => outra execucao ja tem a posse desta mensagem. SAI, sempre.
+      //
+      // A primeira versao deste fix seguia o fluxo quando a linha estava PENDENTE/ERRO,
+      // pra dar "segunda chance" sem esperar o safety-net. O review cross-family derrubou:
+      // com duas entregas concorrentes da mesma msg_id, A insere e B perde a UNIQUE, mas
+      // B leria PENDENTE (posto por A, que ainda esta processando) e os DOIS seguiriam ate
+      // `INSERT tp_fretes`. Nao ha UNIQUE em tp_fretes nem claim atomico, entao daria dois
+      // fretes de R$ 630-740 da mesma foto e duas confirmacoes pro motorista. Trocar
+      // "linha marcada ERRO" (chato) por "frete duplicado" (dinheiro) e piorar o pior caso.
+      //
+      // Quem destrava linha parada continua sendo o safety-net das 06:00, que ja existe e
+      // ja deduplica por frete_id e por container+data antes de inserir.
+      console.log(`[OCR] Reentrega de ${msg.msg_id}: outra execucao tem a posse, saindo`)
+      return
+    }
 
     // Step 3: Upload image to storage
     const storagePath = `fotos/tickets/${msg.chat_jid}/${msg.msg_id}.jpg`
@@ -58,7 +92,6 @@ export async function processWebhookMessage(body) {
     await db.uploadStorage(storagePath, imageBuffer)
 
     // Step 4: Update raw -> PROCESSANDO (clear base64, save storage path)
-    const rawFilter = `msg_id=eq.${msg.msg_id}&chat_jid=eq.${encodeURIComponent(msg.chat_jid)}`
     await db.patch('tp_mensagens_raw', rawFilter, {
       status: 'PROCESSANDO',
       media_base64: null,
@@ -162,7 +195,6 @@ export async function processWebhookMessage(body) {
     alertError('Pipeline ERRO', `Motorista: ${motorista}\nMsg: ${msg.msg_id}\nErro: ${err.message}`)
     // Update raw -> ERRO
     try {
-      const rawFilter = `msg_id=eq.${msg.msg_id}&chat_jid=eq.${encodeURIComponent(msg.chat_jid)}`
       await db.patch('tp_mensagens_raw', rawFilter, {
         status: 'ERRO',
         erro_detalhe: err.message?.substring(0, 1000),
@@ -173,8 +205,30 @@ export async function processWebhookMessage(body) {
   }
 }
 
-// Also used by safety-net for reprocessing
+// Also used by safety-net for reprocessing.
+//
+// Wrapper que garante que a linha nunca fica presa em PROCESSANDO. O corpo marca
+// PROCESSANDO antes do OCR; se o Gemini der 500/timeout, ou o INSERT falhar, a excecao
+// subia e a raw ficava PROCESSANDO PARA SEMPRE — o safety-net so procura PENDENTE e ERRO,
+// entao aquela mensagem nunca mais era tentada e sumia calada. `tentativas` ja tinha sido
+// incrementado, entao o dead-letter tambem nao a via.
 export async function reprocessRawRecord(record) {
+  try {
+    return await reprocessRawRecordInterno(record)
+  } catch (err) {
+    // Devolve pra ERRO pra continuar elegivel ao safety-net (que respeita tentativas < 3,
+    // entao isto nao vira laco infinito). Best-effort: se ate o PATCH falhar, o erro
+    // original e que tem que subir.
+    const rawFilter = `msg_id=eq.${record.msg_id}&chat_jid=eq.${encodeURIComponent(record.chat_jid)}`
+    await db.patch('tp_mensagens_raw', rawFilter, {
+      status: 'ERRO',
+      erro_detalhe: String(err?.message || err).substring(0, 1000),
+    }).catch(() => {})
+    throw err
+  }
+}
+
+async function reprocessRawRecordInterno(record) {
   const msg = {
     msg_id: record.msg_id,
     chat_jid: record.chat_jid,
@@ -278,6 +332,11 @@ function filterMessage(body) {
   const chatJid = data.key.remoteJid
   if (!GROUP_MOTORISTA[chatJid]) return null // Not an allowed group
   if (!data.message?.imageMessage) return null // No image
+  // Foto que saiu DO nosso proprio numero nao e ticket de motorista. O tp-backfill.js ja
+  // descartava fromMe; aqui nao, entao uma imagem nossa no grupo podia virar frete de
+  // R$ 630-740. Os dois caminhos de recuperacao (tp-recovery.js e executeRecovery) montam
+  // o payload com fromMe:false explicito, entao nada legitimo passa a ser barrado aqui.
+  if (data.key.fromMe) return null
 
   return {
     msg_id: data.key.id,

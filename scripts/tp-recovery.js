@@ -23,6 +23,7 @@
 // Exit codes: 0 sucesso, 1 erro fatal, 2 args invalidos.
 
 import { readFile } from 'node:fs/promises'
+import { pathToFileURL } from 'node:url'
 
 const DAEMON_URL = process.env.TP_DAEMON_URL || 'http://127.0.0.1:3847'
 const DAEMON_KEY = process.env.TP_DAEMON_KEY || 'sexta-feira-2026'
@@ -30,12 +31,20 @@ const SB_URL = process.env.TP_SUPABASE_URL
 const SB_KEY = process.env.TP_SUPABASE_KEY
 const WEBHOOK_URL = process.env.TP_WEBHOOK_URL || 'https://tpaulino-gestao-fretes-production.up.railway.app/api/tp/webhook'
 
-const GROUPS = {
-  ALESSANDRO: '120363039509825419@g.us',
-  RONALDO:    '120363314612881947@g.us',
-  CHRISTIAN:  '120363328619713776@g.us',
-  VALTER:     '120363027158529382@g.us',
-  LUIZ:       '120363406009484675@g.us',
+// Deriva do config.js em vez de manter lista propria. A lista paralela que existia aqui
+// tinha 5 grupos e o config tem 6: faltava o alias de grupo do Christian
+// ('120363423313474684@g.us'), entao a recuperacao nunca olhava aquele grupo e um zumbi
+// ali passaria em branco. Duas listas do mesmo fato divergem calado; uma so nao tem como.
+import { GROUP_MOTORISTA } from '../services/config.js'
+
+const GROUPS = {}
+for (const [jid, info] of Object.entries(GROUP_MOTORISTA)) {
+  // Motorista com 2 grupos (fixo + alias) vira MOTORISTA e MOTORISTA#2: a chave aqui e
+  // so rotulo de log, o que vale pra busca sao os JIDs, e todos precisam entrar.
+  let chave = info.motorista
+  let n = 2
+  while (GROUPS[chave]) chave = `${info.motorista}#${n++}`
+  GROUPS[chave] = jid
 }
 
 function parseArgs(argv) {
@@ -93,14 +102,18 @@ async function fetchDaemonMessages(jid, args) {
   return out
 }
 
+// Chave do dedup e o PAR (msg_id, chat_jid), que e a UNIQUE real da tabela. Filtrar so
+// por msg_id pulava mensagem legitima de outro grupo que tivesse o mesmo id.
+export const chaveRaw = (msgId, chatJid) => `${msgId}|${chatJid}`
+
 async function existingRawIds(msgIds) {
   if (msgIds.length === 0) return new Set()
   const inList = msgIds.map(id => `"${id}"`).join(',')
-  const url = `${SB_URL}/rest/v1/tp_mensagens_raw?msg_id=in.(${encodeURIComponent(inList)})&select=msg_id`
+  const url = `${SB_URL}/rest/v1/tp_mensagens_raw?msg_id=in.(${encodeURIComponent(inList)})&select=msg_id,chat_jid`
   const r = await fetch(url, { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } })
   if (!r.ok) throw new Error(`Supabase ${r.status}: ${await r.text().then(t => t.slice(0,200))}`)
   const rows = await r.json()
-  return new Set(rows.map(r => r.msg_id))
+  return new Set(rows.map(r => chaveRaw(r.msg_id, r.chat_jid)))
 }
 
 async function postWebhook(img) {
@@ -135,15 +148,25 @@ async function main() {
   if (args.skip.size > 0) console.log(`Skip explicito: ${[...args.skip].join(', ')}`)
 
   let candidates = []
+  // Grupo que falha no daemon NAO pode virar so uma linha de log. Antes, se o unico grupo
+  // com ticket perdido desse erro e os outros viessem vazios, a saida era
+  // "Candidatos: 0 / Nada a fazer" com exit 0 — perda silenciosa exatamente no caminho
+  // usado como rede de seguranca. O cron do hub le o exit code e o Resumo, entao silencio
+  // aqui vira silencio no Discord.
+  const gruposComFalha = []
   for (const [name, jid] of Object.entries(GROUPS)) {
     try {
       const imgs = await fetchDaemonMessages(jid, args)
       candidates.push(...imgs)
     } catch (err) {
       console.error(`Daemon falhou ${name}:`, err.message)
+      gruposComFalha.push(`${name}: ${err.message}`)
     }
   }
   console.log(`Candidatos no daemon: ${candidates.length}`)
+  if (gruposComFalha.length > 0) {
+    console.error(`Grupos NAO consultados: ${gruposComFalha.length} (${gruposComFalha.join('; ')})`)
+  }
 
   candidates = candidates.filter(c => !args.skip.has(c.msg_id))
 
@@ -153,7 +176,7 @@ async function main() {
   try { alreadyRaw = await existingRawIds(ids) } catch (err) {
     console.error('Dedup query falhou:', err.message); process.exit(1)
   }
-  const toReplay = candidates.filter(c => !alreadyRaw.has(c.msg_id))
+  const toReplay = candidates.filter(c => !alreadyRaw.has(chaveRaw(c.msg_id, c.chat_jid)))
   const dedupSkipped = candidates.length - toReplay.length
 
   console.log(`Skip por dedup raw existente: ${dedupSkipped}`)
@@ -164,16 +187,28 @@ async function main() {
 
   if (args.dryRun || toReplay.length === 0) {
     console.log(args.dryRun ? 'DRY-RUN: nada enviado.' : 'Nada a fazer.')
+    // Mesmo sem nada a replicar, grupo nao consultado e falha: sair 0 aqui diria
+    // "olhei tudo e estava tudo certo", que e mentira.
+    if (gruposComFalha.length > 0) {
+      console.log(`\nResumo: ok=0 fail=${gruposComFalha.length} skip_dedup=${dedupSkipped} skip_explicito=${args.skip.size} grupos_falhos=${gruposComFalha.length}`)
+      process.exit(1)
+    }
     return
   }
 
   let ok = 0, fail = 0
+  // So os que o webhook ACEITOU entram na confirmacao. Conferir `toReplay` inteiro
+  // misturava POST que falhou com linha que ja existia OK no banco (posta por outra
+  // entrega), inflando `confirmados` acima de `ok` e produzindo nao_confirmados NEGATIVO
+  // no resumo que o cron do hub le.
+  const aceitos = []
   for (const img of toReplay) {
     try {
       const res = await postWebhook(img)
       if (res.status >= 200 && res.status < 300) {
         console.log(`OK  [${groupName(img.chat_jid)}] ${img.ts_iso} -> ${res.body}`)
         ok++
+        aceitos.push(img)
       } else {
         console.error(`FAIL [${groupName(img.chat_jid)}] ${img.ts_iso} -> ${res.status} ${res.body}`)
         fail++
@@ -185,8 +220,47 @@ async function main() {
     await new Promise(r => setTimeout(r, 3000))
   }
 
-  console.log(`\nResumo: ok=${ok} fail=${fail} skip_dedup=${dedupSkipped} skip_explicito=${args.skip.size}`)
-  process.exit(fail > 0 ? 1 : 0)
+  // O webhook responde 200 ANTES de processar (ack rapido pra Evolution), entao o 200 so
+  // prova que a requisicao chegou. Confirmar de verdade e ir ao banco ver em que estado a
+  // linha parou. Sem isto, OCR que falhou saia como "ok=1 fail=0" e o cron do hub
+  // anunciava recuperacao que nao aconteceu.
+  let confirmados = 0
+  if (ok > 0) {
+    await new Promise(r => setTimeout(r, 15000)) // folga pro pipeline async terminar
+    try {
+      const enviados = aceitos.map(i => i.msg_id)
+      const inList = enviados.map(id => `"${id}"`).join(',')
+      const url = `${SB_URL}/rest/v1/tp_mensagens_raw?msg_id=in.(${encodeURIComponent(inList)})&select=msg_id,chat_jid,status`
+      const r = await fetch(url, { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } })
+      if (r.ok) {
+        const rows = await r.json()
+        const bons = new Set(rows.filter(x => x.status === 'OK' || x.status === 'IGNORADO')
+          .map(x => chaveRaw(x.msg_id, x.chat_jid)))
+        confirmados = aceitos.filter(i => bons.has(chaveRaw(i.msg_id, i.chat_jid))).length
+        const aceitosSet = new Set(aceitos.map(i => chaveRaw(i.msg_id, i.chat_jid)))
+        const pendentes = rows.filter(x => aceitosSet.has(chaveRaw(x.msg_id, x.chat_jid)) && x.status !== 'OK' && x.status !== 'IGNORADO')
+        if (pendentes.length > 0) {
+          console.error(`NAO confirmados no banco: ${pendentes.map(x => `${x.msg_id.slice(0,12)}=${x.status}`).join(', ')}`)
+        }
+      } else {
+        console.error(`Confirmacao no banco falhou: ${r.status}`)
+      }
+    } catch (err) {
+      console.error('Confirmacao no banco falhou:', err.message)
+    }
+  }
+
+  const naoConfirmados = ok - confirmados
+  console.log(`\nResumo: ok=${ok} fail=${fail} confirmados=${confirmados} nao_confirmados=${naoConfirmados} skip_dedup=${dedupSkipped} skip_explicito=${args.skip.size} grupos_falhos=${gruposComFalha.length}`)
+  process.exit((fail > 0 || naoConfirmados > 0 || gruposComFalha.length > 0) ? 1 : 0)
 }
 
-main().catch(err => { console.error('Fatal:', err); process.exit(1) })
+export { GROUPS }
+
+// So roda quando chamado direto na CLI. Sem esta guarda, `import` deste arquivo (o
+// check faz isso pra comparar os grupos com o config) DISPARARIA uma recuperacao de
+// verdade, postando ticket no webhook de producao a partir de um teste.
+const chamadoDireto = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+if (chamadoDireto) {
+  main().catch(err => { console.error('Fatal:', err); process.exit(1) })
+}
