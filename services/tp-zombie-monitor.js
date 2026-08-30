@@ -9,7 +9,7 @@ import * as db from './supabase.js'
 import {
   GROUP_MOTORISTA, EVOLUTION_INSTANCE, PUSH_URL, PUSH_API_KEY,
   EASYPANEL_HOST, EASYPANEL_EMAIL, EASYPANEL_PASSWORD,
-  EASYPANEL_PROJECT, EASYPANEL_SERVICE, APP_BASE_URL,
+  EASYPANEL_PROJECT, EASYPANEL_SERVICE, APP_BASE_URL, isBusinessHours,
 } from './config.js'
 
 // Thresholds for receive-only zombie detection (probe OK but message gap)
@@ -68,14 +68,6 @@ export function getZombieState() {
     pendingActionsCount: Object.keys(state.pendingActions).length,
     restartCount2h: state.restartCount2h,
   }
-}
-
-function isBusinessHours() {
-  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }))
-  const hour = now.getHours()
-  const day = now.getDay()
-  if (day === 0) return false // Sunday
-  return hour >= 6 && hour < 22
 }
 
 function formatTimeDiff(ms) {

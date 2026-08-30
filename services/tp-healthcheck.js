@@ -2,15 +2,7 @@
 // Runs every 30min: checks Evolution connection state, detects zombie connections
 import { connectionState, reconnect, sendText } from './evolution.js'
 import * as db from './supabase.js'
-import { PUSH_URL, PUSH_API_KEY, MARCO_WHATSAPP } from './config.js'
-
-function isBusinessHours() {
-  const now = new Date()
-  const hour = now.getHours()
-  const day = now.getDay()
-  if (day === 0) return false // Sunday
-  return hour >= 6 && hour < 22
-}
+import { PUSH_URL, PUSH_API_KEY, MARCO_WHATSAPP, isBusinessHours } from './config.js'
 
 async function getLastMessageTime() {
   try {

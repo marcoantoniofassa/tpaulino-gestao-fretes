@@ -132,3 +132,23 @@ export function supaHeaders(prefer = 'return=minimal') {
     'Prefer': prefer,
   }
 }
+
+// Janela em que as guardas (healthcheck e zombie monitor) olham. Fonte unica: as duas
+// tinham copia propria e as duas erravam, em lugares diferentes.
+//
+// SEM excecao de domingo. A copia antiga desligava as duas guardas no domingo inteiro
+// (`if (day === 0) return false`), e domingo NAO e dia parado: nas ultimas 400 fotos,
+// domingo teve 37 e sabado 26. Custo medido em 30/08/2026 (um domingo): a Evolution
+// entrou em zumbi receive-only por volta das 22h de 29/08 e ficou ~18h sem entregar
+// nada, com as duas guardas mudas por serem domingo. Quem segurou o dia foi a rede de
+// protecao do hub (cron de 20min), e quem percebeu foi o Marco no olho.
+//
+// Hora convertida em America/Sao_Paulo de proposito: o tp-healthcheck usava
+// `new Date().getHours()`, que no Railway (UTC) fazia a janela "6h-22h" valer das
+// 03h as 19h BRT. Ou seja, ele parava de olhar as 19h enquanto motorista ainda
+// entregava ticket depois das 20h.
+export function isBusinessHours(now = new Date()) {
+  const brt = new Date(now.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }))
+  const hour = brt.getHours()
+  return hour >= 6 && hour < 22
+}

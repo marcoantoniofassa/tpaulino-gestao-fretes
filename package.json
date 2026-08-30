@@ -10,7 +10,8 @@
     "start": "node server.js",
     "check:alerting": "node services/alerting.check.js",
     "check:gastos": "node services/business-rules.check.js",
-    "check:zombie": "node services/zombie-recovery.check.js"
+    "check:zombie": "node services/zombie-recovery.check.js",
+    "check:horario": "node services/business-hours.check.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",
