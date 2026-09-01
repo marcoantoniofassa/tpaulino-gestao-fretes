@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-09-01
+
+- `fix(monitor)`: **zumbi SEND-ONLY**, o quarto modo de falha da Evolution e o unico sem guarda nenhuma. `connectionState` devolve `open` e `sendText` devolve `500 Connection Closed`: e o espelho exato do receive-only. Medido em 01/09: 5 fretes das 00h14 as 07h55 BRT ficaram sem a confirmacao no grupo do motorista, o retry de 10min falhou por 7h40 seguidas, e as 3 guardas existentes reportaram saudavel o tempo todo.
+- Por que passou: as guardas so olham o lado de CHEGAR. A sonda le `connectionState` (nao envia), o gap mede mensagem entrando, e o `tp-healthcheck` so tenta reconectar quando o estado sai de `open`, que nunca saiu. O unico registro da falha era a coluna `confirmacao_erro`, que nenhum processo lia.
+- `services/tp-zombie-monitor.js`: novo check de envio ANTES do portao `isBusinessHours()`. O portao abre as 6h e o incidente comecou 00h14, entao dentro dele o zumbi teria 5h48 de vantagem outra vez. Nao envia mensagem de sonda: le `confirmacao_enviada=false` com `confirmacao_erro` preenchido ha mais de 30min (3 tentativas inline + ao menos 2 rodadas do cron de retry ja falharam, logo nao e transitorio).
+- Cooldown proprio (`lastSendOnlyAlertAt`, 30min contra 2h do receive-only): compartilhar o campo faria um alerta calar o outro, e os dois modos podem coexistir. O alerta reaproveita o mesmo `dispatchZombieAlert` (cooldown, rate limit de 3 restarts/2h, token de aprovacao), extraido de `runZombieMonitor` em vez de virar um segundo canal com regras proprias.
+- `services/zombie-send.check.js` + `npm run check:envio`: 9 asserts, entre eles a ORDEM do check contra o portao de horario. Provado no negativo: movendo o check pra depois de `isBusinessHours()`, exit 1.
+- `npm run check` roda as 5 guardas de uma vez (nao havia agregado nem CI: cada check dependia de alguem lembrar do nome dele).
+- `services/zombie-recovery.check.js`: o assert `!/sendText/` proibia a MENCAO da palavra no monitor, pra impedir que o texto de alerta afirmasse ter testado envio. Virou falso positivo com o check novo, que precisa nomear `sendText` pra explicar a origem do sinal. Passou a proibir o comportamento (importar ou chamar), nao a palavra.
+- Incidente em si: as 5 confirmacoes foram reenviadas pelo daemon 3847 (segundo transmissor da mesma conta, vivo durante o zumbi) e gravadas com `confirmacao_erro='reenviado via daemon 3847'`, pra que a proxima investigacao nao leia como se a Evolution tivesse voltado sozinha as 08h.
+
 ## 2026-08-26
 
 - `feat(gastos)`: abastecimento nasce `PAGO`. A ISIS abastece e desconta no acerto do frete com o T Paulino: nao existe pagamento manual, entao diesel nunca deveria ter entrado na fila de pendentes.
