@@ -150,11 +150,20 @@ assert.ok(blocoSemZumbi.length > 20, 'nao achei o bloco !zombieConfirmed: check 
 assert.ok(!atribuiSaude(blocoSemZumbi),
   'bloco !zombieConfirmed nao pode mexer em lastHealthyAt: ele roda tambem com gap suspeito de 4-6h')
 
-// A sonda le connectionState e NAO envia nada. Texto de alerta que fale em "sendText" ou
-// afirme que o envio funciona induz o humano a diagnosticar errado no meio do incidente:
-// foi por acreditar em "probe OK = envio vivo" que o modo receive-only passou 3 vezes.
-assert.ok(!/sendText/.test(monitor),
-  'o monitor nao pode falar em sendText: a sonda le connectionState e nao envia nada')
+// A sonda le connectionState e NAO envia nada. Acreditar em "probe OK = envio vivo" deixou
+// o modo receive-only passar 3 vezes, entao o monitor nao pode CHAMAR sendText nem importar
+// ele: uma sonda que envia mensagem de teste polui o grupo do motorista, e uma que finge
+// enviar mente pro humano no meio do incidente.
+//
+// Escopo ajustado em 01/09/2026: antes isto era `!/sendText/`, proibindo ate a MENCAO da
+// palavra. Virou falso positivo quando o monitor ganhou o check de zumbi SEND-ONLY, que
+// precisa nomear `sendText` pra explicar de onde vem o sinal. Ele nao envia nada: le
+// `confirmacao_erro` do que o pipeline JA tentou enviar. Proibir a palavra empurraria o
+// comentario pra vaguidao justamente onde o diagnostico precisa ser preciso.
+assert.ok(!/^\s*(import|const).*\bsendText\b/m.test(monitor),
+  'o monitor nao pode importar sendText: a sonda le connectionState e nao envia nada')
+assert.ok(!/(?<!\/\/.{0,200})\bawait sendText\(/.test(monitor),
+  'o monitor nao pode chamar sendText: sonda que envia polui o grupo do motorista')
 
 // Depois do restart, connectionState volta pra 'open' rapido e fica 'open' durante todo o
 // zumbi receive-only. Carimbar saude ali apaga o marco de inicio do zumbi que a janela de

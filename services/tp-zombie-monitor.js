@@ -29,6 +29,10 @@ const state = {
   restartCount2h: 0,     // restarts in last 2h window
   restartWindow: Date.now(),
   lastReceiveOnlyAlertAt: 0, // cooldown for receive-only alerts (reuses 20min window)
+  // Cooldown SEPARADO por tipo de zumbi. Compartilhar o do receive-only faria um alerta
+  // calar o outro: sao dois modos de falha independentes (chegar x sair) e podem coexistir.
+  lastSendOnlyAlertAt: 0,
+  lastSendOnlyChave: '',   // conjunto de fretes ja alertado (dedup, ver avaliarEnvioTravado)
 }
 
 // Token management
@@ -139,8 +143,92 @@ async function getLastMessageTime() {
   }
 }
 
+// Zumbi SEND-ONLY: a Evolution aceita `connectionState` com 'open' e mesmo assim recusa
+// `sendText` com "Connection Closed". E o espelho do receive-only, e ate 01/09/2026 nenhuma
+// guarda olhava pra ele: a sonda do monitor le estado da conexao (nao envia), o gap mede
+// mensagem CHEGANDO, e o unico registro da falha de envio era a coluna `confirmacao_erro`,
+// que ninguem le. Medido em 01/09/2026: 5 fretes das 00h14 as 04h55 BRT ficaram sem a
+// confirmacao no grupo do motorista, o retry de 10min falhou por 3h30 seguidas e o monitor
+// reportou saudavel o tempo todo.
+//
+// Nao envia mensagem de sonda de proposito: o sinal ja existe de graca. O pipeline grava
+// `confirmacao_enviada=false` toda vez que o envio falha, depois de 3 tentativas inline.
+// Se ainda ha frete nesse estado passados STUCK_MINUTES (o cron de retry roda a cada 10min),
+// nao foi transitorio: o caminho de envio esta morto.
+//
+// Roda ANTES do portao de horario comercial, e isso e o ponto: as falhas de 01/09 comecaram
+// 00h14 BRT e `isBusinessHours()` so abre as 6h. Aqui nao ha risco de falso positivo por
+// "dia fraco" como no gap de recebimento — existe um frete real esperando confirmacao.
+const SEND_STUCK_MINUTES = 30
+
+// Pura de proposito (o I/O fica no chamador): e ela que decide se o envio esta morto, e
+// decisao sem teste foi o que deixou 5 guardas mentirem nos ultimos 6 meses.
+export function avaliarEnvioTravado({ fretes = [], agoraTs = Date.now() } = {}) {
+  const limite = agoraTs - SEND_STUCK_MINUTES * 60 * 1000
+  // So conta quem tem erro de envio REGISTRADO. Frete sem `confirmacao_erro` nunca chegou
+  // a tentar enviar (registro antigo, importacao, status intermediario): tratar isso como
+  // envio morto acusaria zumbi com base em linha que o caminho de envio nem tocou. Havia
+  // 15 registros assim de marco/2026 no banco em 01/09.
+  const travados = fretes
+    .filter(f => f.confirmacao_erro && new Date(f.created_at).getTime() < limite)
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+  if (!travados.length) return { count: 0, chave: '' }
+  return {
+    count: travados.length,
+    maisAntigo: new Date(travados[0].created_at),
+    erro: String(travados[0].confirmacao_erro).substring(0, 160),
+    // Assinatura do conjunto travado. Zumbi VIVO trava frete novo a cada foto que chega,
+    // entao a chave muda de rodada em rodada. Falha PERMANENTE de uma linha so (grupo
+    // removido, jid invalido) fica com a chave parada: alertar de novo seria loop eterno
+    // com a Evolution enviando normal. Mesmo dedup que `_lastAlertedIds` do tp-confirma.
+    chave: travados.map(f => f.id).sort().join(','),
+  }
+}
+
+async function getConfirmacoesTravadas() {
+  try {
+    // `order` no proprio PostgREST: sem ele o limite de 50 corta uma fatia arbitraria, e o
+    // frete mais antigo (o que define ha quanto tempo o envio morreu) pode ficar de fora.
+    const rows = await db.query(
+      'tp_fretes',
+      'select=id,created_at,confirmacao_erro&confirmacao_enviada=eq.false&status=eq.OK&order=created_at.asc&limit=50'
+    )
+    return avaliarEnvioTravado({ fretes: rows })
+  } catch (err) {
+    // Falha de leitura NAO e "envio saudavel": e nao ter olhado. Devolve 0 pra nao alarmar
+    // falso, mas grita no log — silencio aqui seria a quinta guarda muda desta serie.
+    console.warn('[ZombieMonitor] getConfirmacoesTravadas falhou (envio NAO foi verificado):', err.message)
+    // `leituraFalhou` impede que "nao consegui olhar" zere o dedup e vire um alerta repetido
+    // do mesmo conjunto na proxima rodada que ler.
+    return { count: 0, leituraFalhou: true }
+  }
+}
+
 // Main monitor function
 export async function runZombieMonitor() {
+  // Envio morto e fato em qualquer hora: checar antes do portao de horario comercial.
+  try {
+    const travadas = await getConfirmacoesTravadas()
+    if (travadas.count > 0 && travadas.chave !== state.lastSendOnlyChave) {
+      const idade = formatTimeDiff(Date.now() - travadas.maisAntigo.getTime())
+      // Sem `return`: alertar envio morto NAO pode cegar o check de recebimento. Uma
+      // confirmacao que nunca sai (grupo removido, jid invalido) fica travada pra sempre
+      // e, com return aqui, o receive-only nunca mais seria avaliado.
+      const avisou = await dispatchZombieAlert(
+        `Zombie SEND-ONLY: ${travadas.count} confirmacao(oes) sem sair ha ${idade} ` +
+        `(>=${SEND_STUCK_MINUTES}min, apos 3 tentativas inline + retry de 10min). ` +
+        `connectionState pode estar 'open': ele nao testa envio. Ultimo erro: ${travadas.erro}`,
+        'send-only'
+      )
+      // So marca como avisado se o aviso saiu. Cooldown que engole a rodada nao pode
+      // consumir o unico alerta do incidente.
+      if (avisou) state.lastSendOnlyChave = travadas.chave
+    }
+    if (travadas.count === 0 && !travadas.leituraFalhou) state.lastSendOnlyChave = ''
+  } catch (err) {
+    console.error('[ZombieMonitor] check de envio falhou:', err.message)
+  }
+
   if (!isBusinessHours()) return
 
   try {
@@ -269,20 +357,40 @@ export async function runZombieMonitor() {
       return
     }
 
+    return await dispatchZombieAlert(zombieReason, 'receive-only')
+
+  } catch (err) {
+    console.error('[ZombieMonitor] Error:', err.message)
+  }
+}
+
+// Dispara o alerta + link de restart. Extraido de runZombieMonitor pra que o zumbi
+// SEND-ONLY use exatamente o mesmo caminho de aviso e aprovacao do receive-only, em vez
+// de nascer um segundo canal de alerta com cooldown e rate limit proprios.
+//
+// Devolve `true` so quando um aviso REALMENTE saiu. O send-only usa isso pra decidir se
+// pode marcar o conjunto como ja avisado: marcar numa rodada que morreu no cooldown de
+// restart engoliria o incidente inteiro caso nenhum frete novo entrasse depois.
+async function dispatchZombieAlert(zombieReason, tipo) {
+  try {
     // ZOMBIE CONFIRMED
-    console.error(`[ZombieMonitor] ZOMBIE CONFIRMED: ${zombieReason}`)
+    console.error(`[ZombieMonitor] ZOMBIE CONFIRMED (${tipo}): ${zombieReason}`)
 
     // Cooldown: don't alert more than once per 20min (restart) or 2h (receive-only)
     const restartCooldownMs = 20 * 60 * 1000
     if (state.lastRestartAt && (Date.now() - state.lastRestartAt) < restartCooldownMs) {
       console.log('[ZombieMonitor] Restart cooldown active, skipping alert')
-      return
+      return false
     }
     // Receive-only alerts: 2h cooldown to avoid spamming when gap is just a slow day
-    const receiveOnlyCooldownMs = 2 * 60 * 60 * 1000
-    if (state.lastReceiveOnlyAlertAt && (Date.now() - state.lastReceiveOnlyAlertAt) < receiveOnlyCooldownMs) {
-      console.log(`[ZombieMonitor] Receive-only alert cooldown active (${formatTimeDiff(Date.now() - state.lastReceiveOnlyAlertAt)} since last), skipping`)
-      return
+    // Cooldown por TIPO: receive-only 2h (gap pode ser dia fraco, alarme falso custa caro),
+    // send-only 30min (nao ha dia fraco aqui — ha frete real sem confirmacao no grupo, e
+    // cada rodada muda que o motorista continua sem resposta).
+    const campoCooldown = tipo === 'send-only' ? 'lastSendOnlyAlertAt' : 'lastReceiveOnlyAlertAt'
+    const cooldownMs = tipo === 'send-only' ? 30 * 60 * 1000 : 2 * 60 * 60 * 1000
+    if (state[campoCooldown] && (Date.now() - state[campoCooldown]) < cooldownMs) {
+      console.log(`[ZombieMonitor] ${tipo} alert cooldown active (${formatTimeDiff(Date.now() - state[campoCooldown])} since last), skipping`)
+      return false
     }
 
     // Rate limit: max 3 restarts in 2h
@@ -294,7 +402,7 @@ export async function runZombieMonitor() {
       console.error('[ZombieMonitor] 3+ restarts in 2h, stopping')
       alertError('Instabilidade Recorrente',
         `Evolution reiniciada 3x em 2h. Investigar manualmente.\nUltimo motivo: ${zombieReason}`)
-      return
+      return true // avisou (sem link de restart, mas avisou): nao repetir o mesmo conjunto
     }
 
     // Generate action token and send Discord alert
@@ -310,8 +418,8 @@ export async function runZombieMonitor() {
 
     const actionUrl = `${APP_BASE_URL}/api/tp/zombie-restart?key=${PUSH_API_KEY}&token=${token}`
 
-    // Track receive-only alert time for cooldown
-    state.lastReceiveOnlyAlertAt = Date.now()
+    // Track alert time for cooldown (do tipo que disparou)
+    state[campoCooldown] = Date.now()
 
     await alertWithAction(
       'Zombie Detectado',
@@ -340,8 +448,11 @@ export async function runZombieMonitor() {
       }),
     }).catch(() => {})
 
+    return true
+
   } catch (err) {
     console.error('[ZombieMonitor] Error:', err.message)
+    return false
   }
 }
 
