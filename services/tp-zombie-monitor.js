@@ -32,6 +32,7 @@ const state = {
   // Cooldown SEPARADO por tipo de zumbi. Compartilhar o do receive-only faria um alerta
   // calar o outro: sao dois modos de falha independentes (chegar x sair) e podem coexistir.
   lastSendOnlyAlertAt: 0,
+  lastSendOnlyChave: '',   // conjunto de fretes ja alertado (dedup, ver avaliarEnvioTravado)
 }
 
 // Token management
@@ -171,11 +172,16 @@ export function avaliarEnvioTravado({ fretes = [], agoraTs = Date.now() } = {}) 
   const travados = fretes
     .filter(f => f.confirmacao_erro && new Date(f.created_at).getTime() < limite)
     .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-  if (!travados.length) return { count: 0 }
+  if (!travados.length) return { count: 0, chave: '' }
   return {
     count: travados.length,
     maisAntigo: new Date(travados[0].created_at),
     erro: String(travados[0].confirmacao_erro).substring(0, 160),
+    // Assinatura do conjunto travado. Zumbi VIVO trava frete novo a cada foto que chega,
+    // entao a chave muda de rodada em rodada. Falha PERMANENTE de uma linha so (grupo
+    // removido, jid invalido) fica com a chave parada: alertar de novo seria loop eterno
+    // com a Evolution enviando normal. Mesmo dedup que `_lastAlertedIds` do tp-confirma.
+    chave: travados.map(f => f.id).sort().join(','),
   }
 }
 
@@ -192,7 +198,9 @@ async function getConfirmacoesTravadas() {
     // Falha de leitura NAO e "envio saudavel": e nao ter olhado. Devolve 0 pra nao alarmar
     // falso, mas grita no log — silencio aqui seria a quinta guarda muda desta serie.
     console.warn('[ZombieMonitor] getConfirmacoesTravadas falhou (envio NAO foi verificado):', err.message)
-    return { count: 0 }
+    // `leituraFalhou` impede que "nao consegui olhar" zere o dedup e vire um alerta repetido
+    // do mesmo conjunto na proxima rodada que ler.
+    return { count: 0, leituraFalhou: true }
   }
 }
 
@@ -201,15 +209,22 @@ export async function runZombieMonitor() {
   // Envio morto e fato em qualquer hora: checar antes do portao de horario comercial.
   try {
     const travadas = await getConfirmacoesTravadas()
-    if (travadas.count > 0) {
+    if (travadas.count > 0 && travadas.chave !== state.lastSendOnlyChave) {
       const idade = formatTimeDiff(Date.now() - travadas.maisAntigo.getTime())
-      return await dispatchZombieAlert(
+      // Sem `return`: alertar envio morto NAO pode cegar o check de recebimento. Uma
+      // confirmacao que nunca sai (grupo removido, jid invalido) fica travada pra sempre
+      // e, com return aqui, o receive-only nunca mais seria avaliado.
+      const avisou = await dispatchZombieAlert(
         `Zombie SEND-ONLY: ${travadas.count} confirmacao(oes) sem sair ha ${idade} ` +
         `(>=${SEND_STUCK_MINUTES}min, apos 3 tentativas inline + retry de 10min). ` +
         `connectionState pode estar 'open': ele nao testa envio. Ultimo erro: ${travadas.erro}`,
         'send-only'
       )
+      // So marca como avisado se o aviso saiu. Cooldown que engole a rodada nao pode
+      // consumir o unico alerta do incidente.
+      if (avisou) state.lastSendOnlyChave = travadas.chave
     }
+    if (travadas.count === 0 && !travadas.leituraFalhou) state.lastSendOnlyChave = ''
   } catch (err) {
     console.error('[ZombieMonitor] check de envio falhou:', err.message)
   }
@@ -352,6 +367,10 @@ export async function runZombieMonitor() {
 // Dispara o alerta + link de restart. Extraido de runZombieMonitor pra que o zumbi
 // SEND-ONLY use exatamente o mesmo caminho de aviso e aprovacao do receive-only, em vez
 // de nascer um segundo canal de alerta com cooldown e rate limit proprios.
+//
+// Devolve `true` so quando um aviso REALMENTE saiu. O send-only usa isso pra decidir se
+// pode marcar o conjunto como ja avisado: marcar numa rodada que morreu no cooldown de
+// restart engoliria o incidente inteiro caso nenhum frete novo entrasse depois.
 async function dispatchZombieAlert(zombieReason, tipo) {
   try {
     // ZOMBIE CONFIRMED
@@ -361,7 +380,7 @@ async function dispatchZombieAlert(zombieReason, tipo) {
     const restartCooldownMs = 20 * 60 * 1000
     if (state.lastRestartAt && (Date.now() - state.lastRestartAt) < restartCooldownMs) {
       console.log('[ZombieMonitor] Restart cooldown active, skipping alert')
-      return
+      return false
     }
     // Receive-only alerts: 2h cooldown to avoid spamming when gap is just a slow day
     // Cooldown por TIPO: receive-only 2h (gap pode ser dia fraco, alarme falso custa caro),
@@ -371,7 +390,7 @@ async function dispatchZombieAlert(zombieReason, tipo) {
     const cooldownMs = tipo === 'send-only' ? 30 * 60 * 1000 : 2 * 60 * 60 * 1000
     if (state[campoCooldown] && (Date.now() - state[campoCooldown]) < cooldownMs) {
       console.log(`[ZombieMonitor] ${tipo} alert cooldown active (${formatTimeDiff(Date.now() - state[campoCooldown])} since last), skipping`)
-      return
+      return false
     }
 
     // Rate limit: max 3 restarts in 2h
@@ -383,7 +402,7 @@ async function dispatchZombieAlert(zombieReason, tipo) {
       console.error('[ZombieMonitor] 3+ restarts in 2h, stopping')
       alertError('Instabilidade Recorrente',
         `Evolution reiniciada 3x em 2h. Investigar manualmente.\nUltimo motivo: ${zombieReason}`)
-      return
+      return true // avisou (sem link de restart, mas avisou): nao repetir o mesmo conjunto
     }
 
     // Generate action token and send Discord alert
@@ -429,8 +448,11 @@ async function dispatchZombieAlert(zombieReason, tipo) {
       }),
     }).catch(() => {})
 
+    return true
+
   } catch (err) {
     console.error('[ZombieMonitor] Error:', err.message)
+    return false
   }
 }
 

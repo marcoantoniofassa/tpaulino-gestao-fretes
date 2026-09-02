@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-02
+
+- **Incidente**: o zumbi SEND-ONLY voltou 27h depois do primeiro, e passou de novo porque a guarda de 01/09 nunca saiu do branch. Das 09h45 BRT de 01/09 as 08h32 de 02/09, 13 fretes foram gravados com o OCR normal e nenhuma confirmacao chegou no grupo do motorista (`sendText`: `Connection Closed`, `connectionState`: `open`). Destravado com restart do container `evolution/evolution-api` no Easypanel; as 13 confirmacoes sairam na rodada seguinte do retry de 10min.
+- Licao: guarda que fica em branch nao e guarda. O primeiro incidente (01/09) foi diagnosticado, o conserto foi escrito e testado, e o segundo aconteceu identico porque producao rodava sem ele.
+- `fix(monitor)`: o alerta de envio nao da mais `return`. Com ele, uma confirmacao que nunca sai (grupo removido, jid invalido) cegava o check de recebimento pra sempre: os dois modos coexistem, entao o de envio avisa e a rodada segue.
+- `fix(monitor)`: dedup por CONJUNTO de fretes travados (`avaliarEnvioTravado().chave` = ids ordenados). Zumbi vivo trava frete novo a cada foto que chega e a chave muda, entao o aviso continua; falha permanente de uma linha so fica com a chave parada e nao vira alerta de 30 em 30min pra sempre. Apontado por review cross-family (Codex) antes do merge. Leitura do banco que falha nao zera o dedup: "nao consegui olhar" nao pode virar alerta repetido.
+- `services/zombie-send.check.js`: 15 asserts (era 9). Os novos travam a ordem do check contra o portao de horario, a ausencia do `return`, e a estabilidade da chave contra a ordem que o PostgREST devolver.
+
 ## 2026-09-01
 
 - `fix(monitor)`: **zumbi SEND-ONLY**, o quarto modo de falha da Evolution e o unico sem guarda nenhuma. `connectionState` devolve `open` e `sendText` devolve `500 Connection Closed`: e o espelho exato do receive-only. Medido em 01/09: 5 fretes das 00h14 as 07h55 BRT ficaram sem a confirmacao no grupo do motorista, o retry de 10min falhou por 7h40 seguidas, e as 3 guardas existentes reportaram saudavel o tempo todo.

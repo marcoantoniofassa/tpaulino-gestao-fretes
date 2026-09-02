@@ -74,9 +74,50 @@ assert.ok(posEnvio > 0 && posPortao > 0, 'nao achei o check de envio ou o portao
 assert.ok(posEnvio < posPortao,
   'o check de envio TEM que rodar ANTES de isBusinessHours(): foi na madrugada que o zumbi de 01/09 passou')
 
+// O alerta de envio nao pode INTERROMPER a rodada: com `return` aqui, uma confirmacao que
+// nunca sai (grupo removido, jid invalido) fica travada pra sempre e o check de recebimento
+// nunca mais roda. Os dois modos coexistem, entao o de envio avisa e segue.
+const trechoEnvio = corpo.slice(0, posPortao)
+assert.ok(/await dispatchZombieAlert\(/.test(trechoEnvio),
+  'o check de envio precisa disparar o alerta pelo mesmo caminho do receive-only')
+assert.ok(!/return await dispatchZombieAlert\(/.test(trechoEnvio),
+  'o alerta de envio nao pode dar `return`: isso cega o check de recebimento enquanto houver travado')
+
+// Dedup por CONJUNTO: zumbi vivo trava frete novo a cada foto, entao a chave muda e o
+// alerta continua. Falha permanente de uma linha so (grupo removido) fica com a chave
+// parada e nao pode realertar a cada 30min pra sempre com a Evolution enviando normal.
+const doisTravados = [
+  { id: 'b', created_at: emMin(400), confirmacao_erro: ERRO },
+  { id: 'a', created_at: emMin(410), confirmacao_erro: ERRO },
+]
+assert.strictEqual(
+  avaliarEnvioTravado({ agoraTs, fretes: doisTravados }).chave,
+  avaliarEnvioTravado({ agoraTs, fretes: [...doisTravados].reverse() }).chave,
+  'a chave nao pode depender da ordem que o banco devolveu, senao realerta sozinha')
+assert.notStrictEqual(
+  avaliarEnvioTravado({ agoraTs, fretes: doisTravados }).chave,
+  avaliarEnvioTravado({ agoraTs, fretes: [...doisTravados, { id: 'c', created_at: emMin(40), confirmacao_erro: ERRO }] }).chave,
+  'frete novo travado TEM que mudar a chave: e assim que o zumbi vivo continua avisando')
+assert.strictEqual(avaliarEnvioTravado({ agoraTs, fretes: [] }).chave, '', 'fila vazia tem chave vazia (libera o proximo alerta)')
+
+// Dedup so pode ser gravado se o aviso SAIU. dispatchZombieAlert morre em cooldown sem
+// alertar; marcar a chave ali consumiria o unico alerta de um incidente que nao ganha
+// fretes novos (madrugada), e o envio ficaria morto em silencio.
+assert.ok(/const avisou = await dispatchZombieAlert\(/.test(src),
+  'o call site precisa saber se o alerta saiu antes de deduplicar')
+assert.ok(/if \(avisou\) state\.lastSendOnlyChave = travadas\.chave/.test(src),
+  'a chave so pode ser marcada quando o aviso saiu de fato')
+const corpoDispatch = src.slice(src.indexOf('async function dispatchZombieAlert'))
+assert.ok(/skipping alert'\)\s*\n\s*return false/.test(corpoDispatch) && /skipping`\)\s*\n\s*return false/.test(corpoDispatch),
+  'os dois cooldowns tem que devolver false: sem isso o call site acha que avisou')
+
+const monitorSrc = src
+assert.ok(/travadas\.chave !== state\.lastSendOnlyChave/.test(monitorSrc),
+  'o alerta de envio precisa deduplicar por conjunto, senao vira loop de 30 em 30min')
+
 // Cooldown proprio: compartilhar o campo do receive-only faz um alerta calar o outro,
 // e os dois modos de falha podem coexistir.
 assert.ok(/lastSendOnlyAlertAt/.test(src),
   'send-only precisa de cooldown proprio, senao um alerta de receive-only silencia o outro')
 
-console.log('OK: guarda do zumbi SEND-ONLY (01/09/2026) — 9 asserts')
+console.log('OK: guarda do zumbi SEND-ONLY (01/09/2026) — 19 asserts')
