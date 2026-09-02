@@ -71,6 +71,13 @@ export function getZombieState() {
     consecutiveFailures: state.consecutiveFailures,
     pendingActionsCount: Object.keys(state.pendingActions).length,
     restartCount2h: state.restartCount2h,
+    // Estado do check de envio. Fica exposto porque, no incidente de 02/09, nao havia como
+    // provar de fora se a versao em producao tinha a guarda: o endpoint devolvia so o lado
+    // do recebimento e a resposta era identica com e sem o codigo novo.
+    sendOnly: {
+      lastAlertAt: state.lastSendOnlyAlertAt ? new Date(state.lastSendOnlyAlertAt).toISOString() : null,
+      travadosAlertados: state.lastSendOnlyChave ? state.lastSendOnlyChave.split(',').length : 0,
+    },
   }
 }
 

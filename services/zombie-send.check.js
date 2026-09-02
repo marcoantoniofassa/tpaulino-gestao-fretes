@@ -115,9 +115,14 @@ const monitorSrc = src
 assert.ok(/travadas\.chave !== state\.lastSendOnlyChave/.test(monitorSrc),
   'o alerta de envio precisa deduplicar por conjunto, senao vira loop de 30 em 30min')
 
+// O estado do envio tem que sair no /api/tp/zombie-status: sem isso nao ha como provar de
+// fora se a versao em producao tem a guarda (foi o que faltou pra diagnosticar 02/09).
+assert.ok(/sendOnly: \{/.test(src) && /lastSendOnlyAlertAt \? new Date/.test(src),
+  'getZombieState precisa expor o estado do check de envio')
+
 // Cooldown proprio: compartilhar o campo do receive-only faz um alerta calar o outro,
 // e os dois modos de falha podem coexistir.
 assert.ok(/lastSendOnlyAlertAt/.test(src),
   'send-only precisa de cooldown proprio, senao um alerta de receive-only silencia o outro')
 
-console.log('OK: guarda do zumbi SEND-ONLY (01/09/2026) — 19 asserts')
+console.log('OK: guarda do zumbi SEND-ONLY (01/09/2026) — 20 asserts')
