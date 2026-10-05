@@ -27,6 +27,7 @@ export const GROUP_MOTORISTA = {
   '120363423313474684@g.us': { motorista: 'CHRISTIAN', placa: 'FEI3D86' }, // alias
   '120363027158529382@g.us': { motorista: 'VALTER', placa: 'GFR6A86' },
   '120363406009484675@g.us': { motorista: 'LUIZ CARLOS', placa: null },
+  '120363414045401087@g.us': { motorista: 'VICTOR', placa: null }, // grupo "Folguista", volante
 }
 
 // Motorista UUIDs
@@ -36,6 +37,7 @@ export const MOTORISTAS = {
   'CHRISTIAN': '6fd85e0f-c299-435b-8bf0-aa8dc31201f0',
   'VALTER': 'bc11ce16-94c4-4a47-94ec-378d21c36e16',
   'LUIZ CARLOS': 'f3ccac7f-2825-4887-a9d3-258b5276e0c2',
+  'VICTOR': 'c3eb7db5-0c72-445a-aad5-5785657492d0',
 }
 
 // Veiculo UUIDs (placa -> id)

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-05
+
+- Motorista novo VICTOR (Victor Aparecido Benedito), volante como o Luiz Carlos: grupo "Folguista" (`120363414045401087@g.us`) entra no `GROUP_MOTORISTA` e em `tp_motoristas`. Fotos do grupo desde 03/10 reprocessadas via `tp-recovery.sh`.
+
 ## 2026-09-02
 
 - **Incidente**: o zumbi SEND-ONLY voltou 27h depois do primeiro, e passou de novo porque a guarda de 01/09 nunca saiu do branch. Das 09h45 BRT de 01/09 as 08h32 de 02/09, 13 fretes foram gravados com o OCR normal e nenhuma confirmacao chegou no grupo do motorista (`sendText`: `Connection Closed`, `connectionState`: `open`). Destravado com restart do container `evolution/evolution-api` no Easypanel; as 13 confirmacoes sairam na rodada seguinte do retry de 10min.
