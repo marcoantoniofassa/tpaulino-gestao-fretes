@@ -89,7 +89,7 @@ async function fetchDaemonMessages(jid, args) {
     if (tsMs < args.fromMs || tsMs > args.toMs) continue
     const c = m.content || ''
     if (!c.startsWith('[Image:')) continue
-    const path = c.slice(7, -1)
+    const path = c.slice(7, c.indexOf(']')) // conteudo com legenda: "[Image:path] legenda"
     out.push({
       msg_id: m.id,
       chat_jid: jid,
