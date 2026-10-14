@@ -59,6 +59,12 @@ t('alertWithAction: parse [] + users [Marco]',
   JSON.stringify(p.body.allowed_mentions) === JSON.stringify({ parse: [], users: [MARCO] }))
 t('alertWithAction: link de acao intacto', p.body.embeds[0].fields[0].value.includes('https://exemplo.invalid/x'))
 
+// Repost do MESMO incidente zumbi: o ping ja saiu no primeiro, o link renovado continua.
+await alertWithAction('Zombie Persiste', 'gap de 8h', 'Reiniciar', 'https://exemplo.invalid/y', 0xFF4444, 'log')
+p = ultimo()
+t('alertWithAction modo log (reincidencia): sem mencao', !p.body.content && !p.body.allowed_mentions?.users?.length)
+t('alertWithAction modo log: link de acao intacto', p.body.embeds[0].fields[0].value.includes('https://exemplo.invalid/y'))
+
 // --- modo log: precisa ser mudo --------------------------------------------------
 await alertSuccess('Recuperacao Concluida', '12 mensagens reprocessadas')
 p = ultimo()

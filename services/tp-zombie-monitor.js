@@ -231,7 +231,10 @@ export async function runZombieMonitor() {
       // consumir o unico alerta do incidente.
       if (avisou) state.lastSendOnlyChave = travadas.chave
     }
-    if (travadas.count === 0 && !travadas.leituraFalhou) state.lastSendOnlyChave = ''
+    if (travadas.count === 0 && !travadas.leituraFalhou) {
+      state.lastSendOnlyChave = ''
+      await encerrarIncidente('send-only', 'Nenhuma confirmacao travada: envio voltou.')
+    }
   } catch (err) {
     console.error('[ZombieMonitor] check de envio falhou:', err.message)
   }
@@ -312,14 +315,14 @@ export async function runZombieMonitor() {
               // Gap < 6h + probe OK: healthy (plausible slow day)
               state.consecutiveFailures = 0
               state.lastHealthyAt = Date.now()
-              state.lastReceiveOnlyAlertAt = 0 // Reset cooldown on healthy state
+              await encerrarIncidente('receive-only', `Ultima mensagem ha ${formatTimeDiff(gapMs)}: recebimento voltou.`)
             }
           }
         } else {
           // Recent messages, all good
           state.consecutiveFailures = 0
           state.lastHealthyAt = Date.now()
-          state.lastReceiveOnlyAlertAt = 0 // Reset cooldown on healthy state
+          await encerrarIncidente('receive-only', `Ultima mensagem ha ${formatTimeDiff(gapMs)}: recebimento voltou.`)
         }
       } else {
         // No messages in DB at all, can't determine gap
@@ -393,7 +396,7 @@ async function dispatchZombieAlert(zombieReason, tipo) {
     // Cooldown por TIPO: receive-only 2h (gap pode ser dia fraco, alarme falso custa caro),
     // send-only 30min (nao ha dia fraco aqui — ha frete real sem confirmacao no grupo, e
     // cada rodada muda que o motorista continua sem resposta).
-    const campoCooldown = tipo === 'send-only' ? 'lastSendOnlyAlertAt' : 'lastReceiveOnlyAlertAt'
+    const campoCooldown = campoAlerta(tipo)
     const cooldownMs = tipo === 'send-only' ? 30 * 60 * 1000 : 2 * 60 * 60 * 1000
     if (state[campoCooldown] && (Date.now() - state[campoCooldown]) < cooldownMs) {
       console.log(`[ZombieMonitor] ${tipo} alert cooldown active (${formatTimeDiff(Date.now() - state[campoCooldown])} since last), skipping`)
@@ -425,11 +428,17 @@ async function dispatchZombieAlert(zombieReason, tipo) {
 
     const actionUrl = `${APP_BASE_URL}/api/tp/zombie-restart?key=${PUSH_API_KEY}&token=${token}`
 
+    // Mencao so na TRANSICAO saudavel -> zumbi. Campo ainda setado = este incidente ja
+    // pingou (so `encerrarIncidente` zera, na volta). Reincidencia reposta MUDA, so pra
+    // renovar o link (token expira em 1h). Medido 12-13/10/2026: 4 pings do mesmo zumbi.
+    // ponytail: estado em memoria; deploy/reinicio do processo repinga uma vez.
+    const modo = state[campoCooldown] ? 'log' : 'alerta'
+
     // Track alert time for cooldown (do tipo que disparou)
     state[campoCooldown] = Date.now()
 
     await alertWithAction(
-      'Zombie Detectado',
+      modo === 'alerta' ? 'Zombie Detectado' : 'Zombie Persiste',
       [
         `**Motivo:** ${zombieReason}`,
         `**Ultima mensagem:** ${lastMsg ? lastMsg.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : 'N/A'} (ha ${gapStr})`,
@@ -440,11 +449,12 @@ async function dispatchZombieAlert(zombieReason, tipo) {
       ].join('\n'),
       'Aprovar Restart',
       actionUrl,
-      0xFF4444 // red
+      0xFF4444, // red
+      modo
     )
 
-    // Also send push notification
-    fetch(PUSH_URL, {
+    // Also send push notification (push tambem e ping: so na transicao)
+    if (modo === 'alerta') fetch(PUSH_URL, {
       method: 'POST',
       headers: { 'x-api-key': PUSH_API_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -461,6 +471,19 @@ async function dispatchZombieAlert(zombieReason, tipo) {
     console.error('[ZombieMonitor] Error:', err.message)
     return false
   }
+}
+
+function campoAlerta(tipo) {
+  return tipo === 'send-only' ? 'lastSendOnlyAlertAt' : 'lastReceiveOnlyAlertAt'
+}
+
+// Volta zumbi -> saudavel: aviso SEM mencao (alertSuccess = log) e zera o campo, que e o
+// que reabre o ping pro proximo incidente. So posta se este incidente chegou a avisar.
+async function encerrarIncidente(tipo, detalhe) {
+  const campo = campoAlerta(tipo)
+  if (!state[campo]) return
+  state[campo] = 0
+  await alertSuccess(`Zombie ${tipo} resolvido`, detalhe)
 }
 
 // Execute restart (called from server.js when Marco approves)

@@ -168,7 +168,9 @@ Classificacao atual das funcoes exportadas:
 
 - `alertError` : **alerta** (pipeline ERRO, confirmacao falhou, confirmacoes ainda pendentes
   depois do retry, restart falhou, frete IGNORADO por dado nao cadastrado)
-- `alertWithAction` : **alerta** (existe pra alguem CLICAR: zombie detectado, evolution reiniciado)
+- `alertWithAction` : **alerta** (existe pra alguem CLICAR: zombie detectado, evolution reiniciado).
+  Unica excecao: o zombie monitor pinga so na TRANSICAO saudavel -> zumbi; repost do mesmo
+  incidente (link renovado, token de 1h) sai em modo `log`, e a volta sai por `alertSuccess`
 - `alertSuccess` : **log** (recuperacao concluida SEM falha)
 - `alertWarning` : **log** (retry do Gemini se auto-recupera; IGNORADO por `Not TICKET_FRETE`)
 

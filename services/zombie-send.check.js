@@ -125,4 +125,13 @@ assert.ok(/sendOnly: \{/.test(src) && /lastSendOnlyAlertAt \? new Date/.test(src
 assert.ok(/lastSendOnlyAlertAt/.test(src),
   'send-only precisa de cooldown proprio, senao um alerta de receive-only silencia o outro')
 
-console.log('OK: guarda do zumbi SEND-ONLY (01/09/2026) — 20 asserts')
+// Mencao so na transicao saudavel -> zumbi (14/10/2026: 4 pings do mesmo zumbi em 13h).
+// O lado perigoso e o inverso: se a volta nao zerar o campo, todo zumbi seguinte sai mudo.
+assert.ok(/const modo = state\[campoCooldown\] \? 'log' : 'alerta'/.test(corpoDispatch),
+  'reincidencia do mesmo incidente tem que sair em modo log (o ping ja saiu na transicao)')
+assert.ok(/encerrarIncidente\('send-only'/.test(trechoEnvio),
+  'a volta do envio tem que zerar o incidente, senao o proximo send-only nunca mais pinga')
+assert.ok(/encerrarIncidente\('receive-only'/.test(corpo) && !/lastReceiveOnlyAlertAt = 0/.test(src),
+  'a volta do recebimento tem que passar por encerrarIncidente (aviso mudo + reabre o ping)')
+
+console.log('OK: guarda do zumbi SEND-ONLY (01/09/2026) + ping so na transicao — 23 asserts')

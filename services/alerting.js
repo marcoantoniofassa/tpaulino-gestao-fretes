@@ -129,8 +129,9 @@ export async function alertError(title, details) {
 }
 
 // Send Discord embed with clickable action link (human-in-the-loop).
-// Existe justamente porque alguem precisa CLICAR: e alerta, nao log.
-export async function alertWithAction(title, details, actionLabel, actionUrl, color = 0xFFAA00) {
+// Existe justamente porque alguem precisa CLICAR: e alerta, nao log. `modo` 'log' so pra
+// repost do MESMO incidente (link renovado, token expira em 1h): o ping ja saiu no primeiro.
+export async function alertWithAction(title, details, actionLabel, actionUrl, color = 0xFFAA00, modo = 'alerta') {
   console.log(`[ALERT] ${title}: ${details} | Action: ${actionLabel}`)
 
   if (!DISCORD_WEBHOOK) {
@@ -139,7 +140,7 @@ export async function alertWithAction(title, details, actionLabel, actionUrl, co
   }
 
   try {
-    await postDiscord('alerta', {
+    await postDiscord(modo, {
       title: `TP Frete: ${title}`,
       description: details.substring(0, 2000),
       color,
