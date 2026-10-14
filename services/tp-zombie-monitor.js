@@ -368,6 +368,9 @@ export async function runZombieMonitor() {
               zombieReason = `Conexao CAIDA: connectionState fora de 'open' ${state.consecutiveFailures}x seguidas. Gap: ${gapHours.toFixed(1)}h sem mensagens. (a sonda le estado da conexao, NAO testa envio)`
             }
           } else {
+            // Sonda confirmou 'open': a queda acabou. Encerra so a identidade de 'caida' (a
+            // proxima queda e incidente novo e pinga); o receive-only segue a dedup dele.
+            delete state.receiveOnlyAvisado.caida
             // connectionState == 'open'. Pode ser dia fraco OU zumbi receive-only: 'open'
             // fica verde nos dois casos (09/04/2026: 57h de gap com a sonda passando o
             // tempo todo). Quem discrimina e o TAMANHO DO GAP, nunca a sonda.
@@ -411,6 +414,7 @@ export async function runZombieMonitor() {
       const probe = await probeConnectionState()
       if (probe.ok) {
         state.consecutiveFailures = 0
+        delete state.receiveOnlyAvisado.caida // sonda 'open' encerra a queda (ver ramo das 8h)
       } else {
         state.consecutiveFailures++
         if (state.consecutiveFailures >= 3) {

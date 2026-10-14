@@ -247,6 +247,23 @@ try {
     ok(p.length === 0, 'H4: a mesma queda nao repinga a cada 5min')
   }
 
+  // --- I: queda, reconecta, queda de novo sem mensagem nova (P1 da 3a rodada) ------------
+  {
+    const m = await novoMonitor('2026-10-13T09:55')
+    mundo.raw = [vivo('2026-10-13T08:00')]
+    mundo.estado = 'close'
+    await rodada(m, '2026-10-13T10:00')
+    let p = await rodada(m, '2026-10-13T10:05')
+    ok(p.length === 1 && p[0].mencao, 'I1: queda confirmada pinga')
+    mundo.estado = 'open'
+    p = await rodada(m, '2026-10-13T10:10')
+    ok(p.length === 0, 'I2: sonda volta a open, nada a postar')
+    mundo.estado = 'close'
+    await rodada(m, '2026-10-13T13:00')
+    p = await rodada(m, '2026-10-13T13:05')
+    ok(p.length === 1 && p[0].mencao && p[0].titulo.includes('Zombie Detectado'), 'I3: nova queda depois de reconectar pinga, mesmo sem mensagem nova')
+  }
+
   // --- decisao pura: marco ilegivel (banco falhou) ----------------------------------------
   {
     const { decidirAvisoReceiveOnly } = await import(new URL(`./tp-zombie-monitor.js?cenario=${++n}`, import.meta.url))
@@ -259,4 +276,4 @@ try {
   Object.assign(console, silenciar)
 }
 
-console.log(`check:alerta-zombie OK — ${total} asserts: transicao pinga, persistencia muda, volta muda (tambem antes das 8h), entrega recusada retenta, pendencia permanente nao cala frete novo, replay nao anuncia volta, instabilidade pinga uma vez, queda confirmada e frete novo com restart bloqueado pingam`)
+console.log(`check:alerta-zombie OK — ${total} asserts: transicao pinga, persistencia muda, volta muda (tambem antes das 8h), entrega recusada retenta, pendencia permanente nao cala frete novo, replay nao anuncia volta, instabilidade pinga uma vez, queda confirmada (tambem depois de reconectar) e frete novo com restart bloqueado pingam`)
