@@ -108,11 +108,13 @@ export async function retryFailedConfirmacoes() {
   // Dedup alert: only notify if the set of failed IDs changed
   const currentIds = failedIds.sort().join(',')
   if (fail > 0 && currentIds !== _lastAlertedIds) {
-    _lastAlertedIds = currentIds
     // Falha PERSISTENTE: ja esgotou 3 tentativas inline no pipeline e mais uma rodada
     // do cron. O motorista nao recebeu a confirmacao e ninguem vai recuperar sozinho:
     // e alerta, nao rotina. So dispara quando o conjunto de IDs muda (dedup acima).
-    alertError('Confirmacoes pendentes', `${fail} confirmacoes falhando apos retry.\nIDs: ${failedIds.map(id => id.slice(0, 8)).join(', ')}`)
+    // Dedup so grava com entrega confirmada: post recusado (429/500) retenta no proximo cron.
+    if (await alertError('Confirmacoes pendentes', `${fail} confirmacoes falhando apos retry.\nIDs: ${failedIds.map(id => id.slice(0, 8)).join(', ')}`)) {
+      _lastAlertedIds = currentIds
+    }
   }
 }
 

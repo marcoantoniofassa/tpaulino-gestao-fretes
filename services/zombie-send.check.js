@@ -9,7 +9,7 @@
 // Rodar: npm run check:envio
 import assert from 'node:assert'
 import { readFile } from 'node:fs/promises'
-import { avaliarEnvioTravado } from './tp-zombie-monitor.js'
+import { avaliarEnvioTravado, temFreteNovo } from './tp-zombie-monitor.js'
 import { isBusinessHours } from './config.js'
 
 const MIN = 60_000
@@ -111,9 +111,15 @@ const corpoDispatch = src.slice(src.indexOf('async function dispatchZombieAlert'
 assert.ok(/skipping alert'\)\s*\n\s*return false/.test(corpoDispatch) && /skipping`\)\s*\n\s*return false/.test(corpoDispatch),
   'os dois cooldowns tem que devolver false: sem isso o call site acha que avisou')
 
-const monitorSrc = src
-assert.ok(/travadas\.chave !== state\.lastSendOnlyChave/.test(monitorSrc),
+// Dedup por FRETE NOVO, nao por chave diferente (14/10/2026): conjunto que so encolheu
+// (retry entregou parte) nao e incidente novo, e pendencia permanente no conjunto avisado
+// nao pode calar frete novo travado. O fluxo completo roda em zombie-alerta.check.js.
+assert.ok(/temFreteNovo\(travadas\.chave, state\.lastSendOnlyChave\)/.test(src),
   'o alerta de envio precisa deduplicar por conjunto, senao vira loop de 30 em 30min')
+assert.strictEqual(temFreteNovo('P', 'P'), false, 'mesmo conjunto ja avisado nao repinga')
+assert.strictEqual(temFreteNovo('N,P', 'P'), true, 'frete novo ao lado de pendencia permanente E incidente novo')
+assert.strictEqual(temFreteNovo('P', 'N,P'), false, 'conjunto que so encolheu nao e incidente novo')
+assert.strictEqual(temFreteNovo('M,P', 'N,P'), true, 'frete novo depois de um que saiu pinga de novo')
 
 // O estado do envio tem que sair no /api/tp/zombie-status: sem isso nao ha como provar de
 // fora se a versao em producao tem a guarda (foi o que faltou pra diagnosticar 02/09).
@@ -125,4 +131,4 @@ assert.ok(/sendOnly: \{/.test(src) && /lastSendOnlyAlertAt \? new Date/.test(src
 assert.ok(/lastSendOnlyAlertAt/.test(src),
   'send-only precisa de cooldown proprio, senao um alerta de receive-only silencia o outro')
 
-console.log('OK: guarda do zumbi SEND-ONLY (01/09/2026) — 20 asserts')
+console.log('OK: guarda do zumbi SEND-ONLY (01/09/2026) — 24 asserts')
