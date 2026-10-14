@@ -93,19 +93,23 @@ export async function postDiscord(mode, embed) {
 }
 
 // Erro de verdade: pipeline quebrou, confirmacao falhou, restart falhou. Pinga.
+// Devolve true so se o Discord ACEITOU o post: quem deduplica por "ja avisei" nao pode
+// marcar com post recusado (429/500), senao o unico ping do incidente some.
 export async function alertError(title, details) {
   const timestamp = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
   console.error(`[ALERT] ${title}: ${details}`)
 
   // Discord (primary if configured)
+  let entregue = false
   try {
-    await postDiscord('alerta', {
+    const r = await postDiscord('alerta', {
       title: `TP Frete: ${title}`,
       description: details.substring(0, 2000),
       color: 0xFF4444,
       timestamp: new Date().toISOString(),
       footer: { text: 'tpaulino-gestao-fretes' },
     })
+    entregue = r?.ok === true
   } catch (err) {
     console.warn('[ALERT] Discord failed:', err.message)
   }
@@ -126,21 +130,23 @@ export async function alertError(title, details) {
   } catch (err) {
     console.warn('[ALERT] WhatsApp failed:', err.message)
   }
+  return entregue
 }
 
 // Send Discord embed with clickable action link (human-in-the-loop).
 // Existe justamente porque alguem precisa CLICAR: e alerta, nao log. `modo` 'log' so pra
 // repost do MESMO incidente (link renovado, token expira em 1h): o ping ja saiu no primeiro.
+// Devolve true so com post ACEITO pelo Discord (mesmo motivo do alertError).
 export async function alertWithAction(title, details, actionLabel, actionUrl, color = 0xFFAA00, modo = 'alerta') {
   console.log(`[ALERT] ${title}: ${details} | Action: ${actionLabel}`)
 
   if (!DISCORD_WEBHOOK) {
     console.warn('[ALERT] Discord webhook not configured, action link not sent')
-    return
+    return false
   }
 
   try {
-    await postDiscord(modo, {
+    const r = await postDiscord(modo, {
       title: `TP Frete: ${title}`,
       description: details.substring(0, 2000),
       color,
@@ -152,8 +158,10 @@ export async function alertWithAction(title, details, actionLabel, actionUrl, co
       timestamp: new Date().toISOString(),
       footer: { text: 'tpaulino-gestao-fretes | zombie-monitor' },
     })
+    return r?.ok === true
   } catch (err) {
     console.warn('[ALERT] Discord action alert failed:', err.message)
+    return false
   }
 }
 

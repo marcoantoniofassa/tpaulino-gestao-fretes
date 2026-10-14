@@ -169,8 +169,12 @@ Classificacao atual das funcoes exportadas:
 - `alertError` : **alerta** (pipeline ERRO, confirmacao falhou, confirmacoes ainda pendentes
   depois do retry, restart falhou, frete IGNORADO por dado nao cadastrado)
 - `alertWithAction` : **alerta** (existe pra alguem CLICAR: zombie detectado, evolution reiniciado).
-  Unica excecao: o zombie monitor pinga so na TRANSICAO saudavel -> zumbi; repost do mesmo
-  incidente (link renovado, token de 1h) sai em modo `log`, e a volta sai por `alertSuccess`
+  Unica excecao: o zombie monitor so pinga incidente que NAO da pra provar que e o mesmo ja
+  avisado (receive-only: nenhuma linha nova na raw desde o aviso e nenhum restart; send-only:
+  frete novo fora do conjunto avisado). Repost do mesmo incidente (link renovado, token de
+  1h) sai em modo `log`; a volta sai por `alertSuccess`. So entrega confirmada pelo Discord
+  marca o incidente como avisado (`alertWithAction`/`alertError` devolvem true/false).
+  Executado em `node services/zombie-alerta.check.js` (relogio e transporte falsos)
 - `alertSuccess` : **log** (recuperacao concluida SEM falha)
 - `alertWarning` : **log** (retry do Gemini se auto-recupera; IGNORADO por `Not TICKET_FRETE`)
 
@@ -373,7 +377,7 @@ A instancia `marcofassa` na Evolution API (Easypanel pessoal) roda com **115K+ m
   - Gap 6h-10h + probe OK: SUSPEITO (log only, sem alerta ainda)
   - Gap >=10h + probe OK: ZOMBIE RECEIVE-ONLY critico (alerta + link restart)
 - Constantes: `GAP_SUSPECT_HOURS=6`, `GAP_CRITICAL_HOURS=10` (tuned 10/04/2026: 4h gerava falso positivo com 5-6 motoristas)
-- Cooldown receive-only: 2h entre alertas (evita spam quando gap e so dia fraco)
+- Receive-only: mencao so em incidente novo; o mesmo incidente reposta MUDO a cada 2h (link novo)
 - NAO usar `disconnectionReasonCode` (persiste no DB da Evolution apos reconexao, falso positivo)
 - NAO usar `DELETE /instance/logout` pra testar (destroi sessao, exige re-scan QR)
 - Alerta via Discord com link clicavel (human-in-the-loop)

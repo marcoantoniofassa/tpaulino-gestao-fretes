@@ -13,7 +13,8 @@
     "check:zombie": "node services/zombie-recovery.check.js",
     "check:horario": "node services/business-hours.check.js",
     "check:envio": "node services/zombie-send.check.js",
-    "check": "npm run check:alerting && npm run check:gastos && npm run check:zombie && npm run check:horario && npm run check:envio"
+    "check:alerta-zombie": "node services/zombie-alerta.check.js",
+    "check": "npm run check:alerting && npm run check:gastos && npm run check:zombie && npm run check:horario && npm run check:envio && npm run check:alerta-zombie"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",

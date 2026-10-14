@@ -64,6 +64,9 @@ await alertWithAction('Zombie Persiste', 'gap de 8h', 'Reiniciar', 'https://exem
 p = ultimo()
 t('alertWithAction modo log (reincidencia): sem mencao', !p.body.content && !p.body.allowed_mentions?.users?.length)
 t('alertWithAction modo log: link de acao intacto', p.body.embeds[0].fields[0].value.includes('https://exemplo.invalid/y'))
+t('alertWithAction devolve true quando o Discord aceita',
+  (await alertWithAction('Zombie Detectado', 'gap', 'Reiniciar', 'https://exemplo.invalid/z')) === true)
+t('alertError devolve true quando o Discord aceita', (await alertError('Pipeline ERRO', 'ok')) === true)
 
 // --- modo log: precisa ser mudo --------------------------------------------------
 await alertSuccess('Recuperacao Concluida', '12 mensagens reprocessadas')
@@ -118,6 +121,15 @@ await alertError('Pipeline ERRO', 'discord fora do ar')
 t('Discord 404 nao impede o fallback WhatsApp do alertError',
   capturado.slice(antesFallback).some(c => c.url.includes('/message/sendText/')))
 
+// Entrega recusada tem que VOLTAR pro chamador: o zombie monitor so marca o incidente como
+// avisado com entrega confirmada. Engolir 429/500 consumia o unico ping do incidente.
+for (const status of [429, 500]) {
+  respostaStub = { ok: false, status, text: async () => 'recusado' }
+  t(`http ${status}: alertWithAction devolve false (nao entregue), sem lancar`,
+    (await alertWithAction('Zombie Detectado', 'gap', 'Reiniciar', 'https://exemplo.invalid/x')) === false)
+  t(`http ${status}: alertError devolve false (nao entregue)`, (await alertError('Pipeline ERRO', 'x')) === false)
+}
+
 console.error = consoleErrorReal
 respostaStub = { ok: true, status: 204, text: async () => '', json: async () => ({}) }
 
@@ -148,7 +160,9 @@ const { fileURLToPath } = await import('node:url')
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORA_DIR = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', '.next'])
 const EXT = /\.(js|mjs|cjs|ts|tsx|jsx)$/
-const DONOS = new Set(['services/alerting.js', 'services/alerting.check.js'])
+// zombie-alerta.check.js aponta o webhook pra um host .invalid com fetch stubado: e check,
+// nao poster. Entra pelo nome, nunca por padrao de diretorio.
+const DONOS = new Set(['services/alerting.js', 'services/alerting.check.js', 'services/zombie-alerta.check.js'])
 const PADROES = [
   [/discord(app)?\.com\/api\/webhooks/i, 'URL de webhook do Discord'],
   [/process\.env\.[A-Z0-9_]*DISCORD[A-Z0-9_]*/, 'env var de Discord lida direto'],
