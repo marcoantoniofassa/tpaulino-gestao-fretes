@@ -170,8 +170,9 @@ Classificacao atual das funcoes exportadas:
   depois do retry, restart falhou, frete IGNORADO por dado nao cadastrado)
 - `alertWithAction` : **alerta** (existe pra alguem CLICAR: zombie detectado, evolution reiniciado).
   Unica excecao: o zombie monitor so pinga incidente que NAO da pra provar que e o mesmo ja
-  avisado (receive-only: nenhuma linha nova na raw desde o aviso e nenhum restart; send-only:
-  frete novo fora do conjunto avisado). Repost do mesmo incidente (link renovado, token de
+  avisado (receive-only: mesmo modo de falha, receive-only x queda, nenhuma linha nova na raw
+  desde o aviso e nenhum restart; send-only: frete novo fora do conjunto avisado). Com restart
+  bloqueado (3x em 2h) incidente novo pinga sem link. Repost do mesmo incidente (link renovado, token de
   1h) sai em modo `log`; a volta sai por `alertSuccess`. So entrega confirmada pelo Discord
   marca o incidente como avisado (`alertWithAction`/`alertError` devolvem true/false).
   Executado em `node services/zombie-alerta.check.js` (relogio e transporte falsos)

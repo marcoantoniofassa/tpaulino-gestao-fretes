@@ -38,7 +38,7 @@ globalThis.setTimeout = (fn, ms, ...a) => realSetTimeout(fn, ms >= 30000 ? 0 : m
 // --- transporte falso ------------------------------------------------------------------
 let mundo
 function novoMundo() {
-  return { raw: [], fretes: [], discordStatus: 204, posts: [], pushes: [], whats: 0 }
+  return { raw: [], fretes: [], estado: 'open', discordStatus: 204, posts: [], pushes: [], whats: 0 }
 }
 const resp = (body, status = 200) => ({
   ok: status >= 200 && status < 300, status,
@@ -63,7 +63,7 @@ globalThis.fetch = async (url, opts = {}) => {
     return resp([...mundo.raw].sort((a, b) => RealDate.parse(b.created_at) - RealDate.parse(a.created_at)).slice(0, lim))
   }
   if (u.includes('/instance/fetchInstances')) return resp([{ name: 'marcofassa', connectionStatus: 'open' }])
-  if (u.includes('/instance/connectionState/')) return resp({ instance: { state: 'open' } })
+  if (u.includes('/instance/connectionState/')) return resp({ instance: { state: mundo.estado } })
   if (u.includes('/message/sendText/')) { mundo.whats++; return resp({}) }
   if (u.includes('/api/trpc/auth.login')) return resp({ result: { data: { json: { token: 'jwt' } } } })
   if (u.includes('/api/trpc/services.app.deployService')) return resp({})
@@ -224,6 +224,27 @@ try {
     ok(so(p, 'Instabilidade Recorrente').length === 1 && so(p, 'Instabilidade Recorrente')[0].mencao, 'F1: 3 restarts em 2h pinga na entrada')
     let depois = [...await rodada(m, '2026-10-13T14:16'), ...await rodada(m, '2026-10-13T14:21'), ...await rodada(m, '2026-10-13T14:26')]
     ok(depois.length === 0, 'F2: instabilidade nao repinga a cada 5min')
+    // Restart bloqueado nao pode calar incidente NOVO: frete novo travado pinga sem link.
+    mundo.fretes = [frete('Z', '2026-10-13T13:50')]
+    p = await rodada(m, '2026-10-13T14:31')
+    ok(p.length === 1 && p[0].mencao && p[0].titulo.includes('restart bloqueado'), 'F3: frete novo durante a janela de restart bloqueado pinga')
+    p = await rodada(m, '2026-10-13T14:36')
+    ok(p.length === 0, 'F4: o mesmo frete nao repinga')
+  }
+
+  // --- H: queda confirmada nao herda o aviso do receive-only (P1 da 2a rodada) -----------
+  {
+    const m = await novoMonitor('2026-10-13T12:55')
+    mundo.raw = [vivo('2026-10-13T07:00')]
+    let p = await rodada(m, '2026-10-13T13:05')
+    ok(p.length === 1 && p[0].mencao, 'H1: receive-only pinga')
+    mundo.estado = 'close' // sem linha nova na raw: mesmo marco
+    p = await rodada(m, '2026-10-13T15:10')
+    ok(p.length === 0, 'H2: 1a falha da sonda ainda nao confirma queda')
+    p = await rodada(m, '2026-10-13T15:15')
+    ok(p.length === 1 && p[0].mencao && p[0].titulo.includes('Zombie Detectado'), 'H3: queda confirmada e modo de falha novo e pinga')
+    p = await rodada(m, '2026-10-13T15:20')
+    ok(p.length === 0, 'H4: a mesma queda nao repinga a cada 5min')
   }
 
   // --- decisao pura: marco ilegivel (banco falhou) ----------------------------------------
@@ -238,4 +259,4 @@ try {
   Object.assign(console, silenciar)
 }
 
-console.log(`check:alerta-zombie OK — ${total} asserts: transicao pinga, persistencia muda, volta muda (tambem antes das 8h), entrega recusada retenta, pendencia permanente nao cala frete novo, replay nao anuncia volta, instabilidade pinga uma vez`)
+console.log(`check:alerta-zombie OK — ${total} asserts: transicao pinga, persistencia muda, volta muda (tambem antes das 8h), entrega recusada retenta, pendencia permanente nao cala frete novo, replay nao anuncia volta, instabilidade pinga uma vez, queda confirmada e frete novo com restart bloqueado pingam`)

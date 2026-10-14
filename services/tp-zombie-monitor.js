@@ -28,11 +28,12 @@ const state = {
   pendingActions: {},    // token -> { type, zombieStartTime, expiresAt, used }
   restartCount2h: 0,     // restarts in last 2h window
   restartWindow: Date.now(),
-  // Incidente receive-only ja avisado: { marcoMs, ts } do ultimo post ENTREGUE. marcoMs e o
-  // created_at mais novo da raw naquele momento (identidade do incidente, ver
-  // decidirAvisoReceiveOnly). null = nenhum incidente aberto: o proximo zumbi pinga.
+  // Incidente receive-only ja avisado, POR MODO DE FALHA ('receive-only' | 'caida'):
+  // { marcoMs, ts } do ultimo post ENTREGUE. marcoMs e o created_at mais novo da raw naquele
+  // momento (identidade do incidente, ver decidirAvisoReceiveOnly). Queda confirmada nao
+  // herda o aviso do receive-only (e vice-versa). Chave ausente = o proximo zumbi pinga.
   // ponytail: estado em memoria; deploy/reinicio do processo repinga uma vez.
-  receiveOnlyAvisado: null,
+  receiveOnlyAvisado: {},
   // Cooldown SEPARADO por tipo de zumbi. Compartilhar o do receive-only faria um alerta
   // calar o outro: sao dois modos de falha independentes (chegar x sair) e podem coexistir.
   lastSendOnlyAlertAt: 0,
@@ -85,8 +86,9 @@ export function getZombieState() {
       travadosAlertados: state.lastSendOnlyChave ? state.lastSendOnlyChave.split(',').length : 0,
     },
     receiveOnly: {
-      avisadoEm: state.receiveOnlyAvisado ? new Date(state.receiveOnlyAvisado.ts).toISOString() : null,
-      marco: state.receiveOnlyAvisado?.marcoMs ? new Date(state.receiveOnlyAvisado.marcoMs).toISOString() : null,
+      avisadoEm: Object.keys(state.receiveOnlyAvisado).length
+        ? new Date(Math.max(...Object.values(state.receiveOnlyAvisado).map(a => a.ts))).toISOString() : null,
+      falhas: Object.keys(state.receiveOnlyAvisado),
     },
   }
 }
@@ -305,8 +307,8 @@ export async function runZombieMonitor() {
     // Prova de recebimento encerra o incidente em QUALQUER hora comercial, inclusive antes
     // das 8h (o ramo pre-8h nao olha gap). Volta sai muda.
     const recebimento = await lerRecebimento()
-    if (recebimentoVoltou({ avisado: state.receiveOnlyAvisado, vivaMaisNovaMs: recebimento?.vivaMaisNovaMs })) {
-      state.receiveOnlyAvisado = null
+    if (Object.values(state.receiveOnlyAvisado).some(avisado => recebimentoVoltou({ avisado, vivaMaisNovaMs: recebimento?.vivaMaisNovaMs }))) {
+      state.receiveOnlyAvisado = {}
       await alertSuccess('Recebimento voltou',
         `Mensagem ao vivo as ${new Date(recebimento.vivaMaisNovaMs).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}. Zumbi receive-only encerrado.`)
     }
@@ -314,6 +316,7 @@ export async function runZombieMonitor() {
     // Step 1: Check connectionState (catches clean disconnects)
     let zombieConfirmed = false
     let zombieReason = ''
+    let zombieFalha = 'receive-only' // modo de falha: entra na identidade do incidente
     let connStatus = 'unknown'
 
     try {
@@ -361,6 +364,7 @@ export async function runZombieMonitor() {
 
             if (state.consecutiveFailures >= 2) {
               zombieConfirmed = true
+              zombieFalha = 'caida'
               zombieReason = `Conexao CAIDA: connectionState fora de 'open' ${state.consecutiveFailures}x seguidas. Gap: ${gapHours.toFixed(1)}h sem mensagens. (a sonda le estado da conexao, NAO testa envio)`
             }
           } else {
@@ -411,6 +415,7 @@ export async function runZombieMonitor() {
         state.consecutiveFailures++
         if (state.consecutiveFailures >= 3) {
           zombieConfirmed = true
+          zombieFalha = 'caida'
           zombieReason = `Probe falhou ${state.consecutiveFailures}x consecutivas (pre-8h).`
         }
       }
@@ -434,7 +439,7 @@ export async function runZombieMonitor() {
       return
     }
 
-    return await dispatchZombieAlert(zombieReason, 'receive-only', recebimento)
+    return await dispatchZombieAlert(zombieReason, 'receive-only', recebimento, zombieFalha)
 
   } catch (err) {
     console.error('[ZombieMonitor] Error:', err.message)
@@ -448,7 +453,7 @@ export async function runZombieMonitor() {
 // Devolve `true` so quando um aviso REALMENTE saiu. O send-only usa isso pra decidir se
 // pode marcar o conjunto como ja avisado: marcar numa rodada que morreu no cooldown de
 // restart engoliria o incidente inteiro caso nenhum frete novo entrasse depois.
-async function dispatchZombieAlert(zombieReason, tipo, recebimento = null) {
+async function dispatchZombieAlert(zombieReason, tipo, recebimento = null, falha = 'receive-only') {
   try {
     // ZOMBIE CONFIRMED
     console.error(`[ZombieMonitor] ZOMBIE CONFIRMED (${tipo}): ${zombieReason}`)
@@ -474,9 +479,9 @@ async function dispatchZombieAlert(zombieReason, tipo, recebimento = null) {
         return false
       }
     } else {
-      modo = decidirAvisoReceiveOnly({ avisado: state.receiveOnlyAvisado, marcoMs: recebimento?.marcoMs ?? null, agoraTs: Date.now() })
+      modo = decidirAvisoReceiveOnly({ avisado: state.receiveOnlyAvisado[falha] ?? null, marcoMs: recebimento?.marcoMs ?? null, agoraTs: Date.now() })
       if (modo === 'pular') {
-        console.log(`[ZombieMonitor] receive-only: mesmo incidente avisado ha ${formatTimeDiff(Date.now() - state.receiveOnlyAvisado.ts)}, skipping`)
+        console.log(`[ZombieMonitor] ${falha}: mesmo incidente avisado ha ${formatTimeDiff(Date.now() - state.receiveOnlyAvisado[falha].ts)}, skipping`)
         return false
       }
     }
@@ -487,17 +492,18 @@ async function dispatchZombieAlert(zombieReason, tipo, recebimento = null) {
       state.restartWindow = Date.now()
     }
     if (state.restartCount2h >= 3) {
-      // Pinga so na ENTRADA neste estado (uma vez por janela); antes saia alertError a cada
-      // rodada de 5min enquanto a janela durasse. Marca so se o Discord aceitou.
-      if (state.instabilidadeAvisadaJanela !== state.restartWindow) {
-        console.error('[ZombieMonitor] 3+ restarts in 2h, stopping')
-        const ok = await alertError('Instabilidade Recorrente',
-          `Evolution reiniciada 3x em 2h. Investigar manualmente.\nUltimo motivo: ${zombieReason}`)
-        if (ok) state.instabilidadeAvisadaJanela = state.restartWindow
-      }
-      // false: nenhum aviso DESTE incidente (com link) saiu. O send-only nao marca o conjunto
-      // e avisa quando a janela vencer: atraso, nunca silencio.
-      return false
+      // Restart bloqueado na janela: sem link. A dedup limita a REPETICAO (mesmo incidente
+      // decidido acima, e o titulo "Instabilidade Recorrente" uma vez por janela); antes saia
+      // alertError a cada 5min. Incidente NOVO (frete novo, zumbi novo) pinga mesmo assim.
+      if (modo === 'log') return false // mesmo incidente: nao ha link pra renovar
+      console.error('[ZombieMonitor] 3+ restarts in 2h, stopping')
+      const primeira = state.instabilidadeAvisadaJanela !== state.restartWindow
+      const ok = await alertError(primeira ? 'Instabilidade Recorrente' : 'Zombie Detectado (restart bloqueado)',
+        `${primeira ? 'Evolution reiniciada 3x em 2h' : 'Restart bloqueado (3x em 2h)'}. Investigar manualmente.\nMotivo: ${zombieReason}`)
+      if (!ok) return false
+      if (primeira) state.instabilidadeAvisadaJanela = state.restartWindow
+      marcarAvisado(tipo, falha, recebimento)
+      return true
     }
 
     // Generate action token and send Discord alert
@@ -551,14 +557,18 @@ async function dispatchZombieAlert(zombieReason, tipo, recebimento = null) {
       console.error(`[ZombieMonitor] aviso ${tipo} NAO entregue no Discord; nada marcado, retenta na proxima rodada`)
       return false
     }
-    if (tipo === 'send-only') state.lastSendOnlyAlertAt = Date.now()
-    else state.receiveOnlyAvisado = { marcoMs: recebimento?.marcoMs ?? null, ts: Date.now() }
+    marcarAvisado(tipo, falha, recebimento)
     return true
 
   } catch (err) {
     console.error('[ZombieMonitor] Error:', err.message)
     return false
   }
+}
+
+function marcarAvisado(tipo, falha, recebimento) {
+  if (tipo === 'send-only') state.lastSendOnlyAlertAt = Date.now()
+  else state.receiveOnlyAvisado[falha] = { marcoMs: recebimento?.marcoMs ?? null, ts: Date.now() }
 }
 
 // Execute restart (called from server.js when Marco approves)
@@ -602,7 +612,7 @@ export async function executeRestart(token) {
     state.consecutiveFailures = 0
     // Restart muda o estado: zumbi depois dele e incidente novo e pinga. O backlog que o
     // Baileys entrega na volta tem timestamp velho e nao prova recebimento ao vivo.
-    state.receiveOnlyAvisado = null
+    state.receiveOnlyAvisado = {}
 
     // Step 3: Wait for container to come up
     console.log('[ZombieMonitor] Container restart initiated, waiting 90s...')
